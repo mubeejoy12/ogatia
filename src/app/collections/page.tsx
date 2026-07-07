@@ -42,8 +42,8 @@ export default function CollectionsPage() {
                 >
                   <div className="relative aspect-[4/5] overflow-hidden">
                     <Image
-                      src={c.image}
-                      alt={c.name}
+                      src={c.image.src}
+                      alt={c.image.alt}
                       fill
                       sizes="(min-width: 1024px) 58vw, 100vw"
                       className="object-cover"
