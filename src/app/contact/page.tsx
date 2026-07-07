@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/sections/PageHeader";
 import { Reveal } from "@/components/motion/Reveal";
 import { ContactForm } from "@/features/contact/ContactForm";
 import { site } from "@/lib/site";
+import { assets } from "@/lib/assets";
 
 export const metadata: Metadata = {
   title: "Contact",
@@ -34,8 +35,8 @@ export default function ContactPage() {
             </p>
             <div className="relative aspect-[4/5] mt-6 overflow-hidden">
               <Image
-                src="https://images.unsplash.com/photo-1520975916090-3105956dac38?auto=format&fit=crop&w=1200&q=80"
-                alt="Inside the Eazi Cut Lagos atelier"
+                src={assets.contact.atelier.src}
+                alt={assets.contact.atelier.alt}
                 fill
                 sizes="(min-width: 1024px) 35vw, 100vw"
                 className="object-cover"

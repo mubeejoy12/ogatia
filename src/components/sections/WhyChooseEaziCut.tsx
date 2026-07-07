@@ -1,5 +1,6 @@
 import Image from "next/image";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion/Reveal";
+import { assets } from "@/lib/assets";
 
 const pillars = [
   {
@@ -40,8 +41,8 @@ export function WhyChooseEaziCut() {
 
           <div className="relative mt-12 aspect-[4/5] max-w-sm overflow-hidden">
             <Image
-              src="https://images.unsplash.com/photo-1542327897-d73f4005b533?auto=format&fit=crop&w=1200&q=80"
-              alt="Master tailor working at the cutting table"
+              src={assets.whyChoose.craft.src}
+              alt={assets.whyChoose.craft.alt}
               fill
               sizes="(min-width: 1024px) 400px, 100vw"
               className="object-cover"

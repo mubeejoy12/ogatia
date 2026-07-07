@@ -26,8 +26,8 @@ export function CollectionCard({
     >
       <div className="relative aspect-[4/5] overflow-hidden bg-stone-100">
         <Image
-          src={collection.image}
-          alt={collection.name}
+          src={collection.image.src}
+          alt={collection.image.alt}
           fill
           sizes="(min-width: 768px) 50vw, 100vw"
           priority={priority}

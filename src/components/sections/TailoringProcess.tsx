@@ -2,6 +2,7 @@ import Image from "next/image";
 import { tailoringProcess } from "@/lib/data/process";
 import { SectionHeader } from "./SectionHeader";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion/Reveal";
+import { assets } from "@/lib/assets";
 
 export function TailoringProcess() {
   return (
@@ -17,8 +18,8 @@ export function TailoringProcess() {
           <Reveal className="lg:col-span-5 lg:sticky lg:top-28">
             <div className="relative aspect-[3/4] overflow-hidden">
               <Image
-                src="https://images.unsplash.com/photo-1520975916090-3105956dac38?auto=format&fit=crop&w=1400&q=80"
-                alt="Fabric library and shears in the atelier"
+                src={assets.process.workshop.src}
+                alt={assets.process.workshop.alt}
                 fill
                 sizes="(min-width: 1024px) 40vw, 100vw"
                 className="object-cover"

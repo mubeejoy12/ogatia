@@ -4,13 +4,15 @@ import Image from "next/image";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
+import { assets } from "@/lib/assets";
 
 export function Hero() {
+  const hero = assets.hero.home;
   return (
     <section className="relative h-[100svh] min-h-[640px] w-full overflow-hidden bg-ink text-ivory">
       <Image
-        src="https://images.unsplash.com/photo-1593030103066-0093718efeb9?auto=format&fit=crop&w=2400&q=85"
-        alt="Gentleman in bespoke charcoal three-piece suiting, photographed in editorial light"
+        src={hero.src}
+        alt={hero.alt}
         fill
         priority
         sizes="100vw"

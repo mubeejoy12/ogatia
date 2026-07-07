@@ -14,22 +14,22 @@ export function LookbookGallery() {
     <section className="pb-24 md:pb-32 bg-ivory">
       <div className="container">
         <Stagger className="grid grid-cols-1 md:grid-cols-12 gap-6 md:gap-8 auto-rows-auto">
-          {lookbook.map((img) => (
+          {lookbook.map((item) => (
             <StaggerItem
-              key={img.src}
-              className={cn("group relative overflow-hidden", spanClass[img.span])}
+              key={item.image.src}
+              className={cn("group relative overflow-hidden", spanClass[item.span])}
             >
               <Image
-                src={img.src}
-                alt={img.alt}
+                src={item.image.src}
+                alt={item.image.alt}
                 fill
                 sizes="(min-width: 768px) 50vw, 100vw"
                 className="object-cover transition-transform duration-[1400ms] ease-editorial group-hover:scale-[1.04]"
               />
               <div className="absolute inset-x-0 bottom-0 p-6 bg-gradient-to-t from-ink/70 to-transparent text-ivory opacity-0 group-hover:opacity-100 transition-opacity duration-500">
-                <p className="eyebrow text-ivory/70">{img.collection}</p>
+                <p className="eyebrow text-ivory/70">{item.collection}</p>
                 <p className="mt-2 font-display text-xl tracking-tightest">
-                  {img.caption}
+                  {item.caption}
                 </p>
               </div>
             </StaggerItem>

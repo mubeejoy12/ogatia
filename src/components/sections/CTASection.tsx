@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Reveal } from "@/components/motion/Reveal";
+import { assets, type ImageAsset } from "@/lib/assets";
 
 export function CTASection({
   eyebrow = "Begin Your Commission",
@@ -11,7 +12,7 @@ export function CTASection({
   primaryLabel = "Book a Fitting",
   secondaryHref = "/lookbook",
   secondaryLabel = "View the Lookbook",
-  image = "https://images.unsplash.com/photo-1490578474895-699cd4e2cf59?auto=format&fit=crop&w=2000&q=85",
+  image = assets.cta.default,
 }: {
   eyebrow?: string;
   title?: string;
@@ -20,12 +21,12 @@ export function CTASection({
   primaryLabel?: string;
   secondaryHref?: string;
   secondaryLabel?: string;
-  image?: string;
+  image?: ImageAsset;
 }) {
   return (
     <section className="relative isolate overflow-hidden bg-ink text-ivory">
       <Image
-        src={image}
+        src={image.src}
         alt=""
         fill
         sizes="100vw"

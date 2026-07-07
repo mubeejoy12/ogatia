@@ -3,6 +3,7 @@ import Image from "next/image";
 import { PageHeader } from "@/components/sections/PageHeader";
 import { CTASection } from "@/components/sections/CTASection";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion/Reveal";
+import { assets } from "@/lib/assets";
 
 export const metadata: Metadata = {
   title: "The Atelier",
@@ -38,8 +39,8 @@ export default function AboutPage() {
         <div className="container grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
           <Reveal className="lg:col-span-7 relative aspect-[4/5] overflow-hidden">
             <Image
-              src="https://images.unsplash.com/photo-1542327897-d73f4005b533?auto=format&fit=crop&w=1800&q=85"
-              alt="Master tailor at the cutting table inside the Lagos atelier"
+              src={assets.about.craft.src}
+              alt={assets.about.craft.alt}
               fill
               sizes="(min-width: 1024px) 58vw, 100vw"
               className="object-cover"
