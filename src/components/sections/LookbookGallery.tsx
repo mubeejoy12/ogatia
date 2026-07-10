@@ -24,7 +24,7 @@ export function LookbookGallery() {
                 alt={item.image.alt}
                 fill
                 sizes="(min-width: 768px) 50vw, 100vw"
-                className="object-cover transition-transform duration-[1400ms] ease-editorial group-hover:scale-[1.04]"
+                className="object-cover transition-transform duration-1400 ease-editorial group-hover:scale-[1.04]"
               />
               <div className="absolute inset-x-0 bottom-0 p-6 bg-gradient-to-t from-ink/70 to-transparent text-ivory opacity-0 group-hover:opacity-100 transition-opacity duration-500">
                 <p className="eyebrow text-ivory/70">{item.collection}</p>

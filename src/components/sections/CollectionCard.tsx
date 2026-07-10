@@ -31,7 +31,7 @@ export function CollectionCard({
           fill
           sizes="(min-width: 768px) 50vw, 100vw"
           priority={priority}
-          className="object-cover transition-transform duration-[1200ms] ease-editorial group-hover:scale-105"
+          className="object-cover transition-transform duration-1200 ease-editorial group-hover:scale-105"
         />
         <span className="absolute top-6 left-6 eyebrow text-ivory bg-ink/40 backdrop-blur-sm px-3 py-1.5">
           {String(index + 1).padStart(2, "0")} · {collection.category}

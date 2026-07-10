@@ -31,3 +31,36 @@ Every decision should reinforce:
 * premium customer experience
 
 Always explain major architectural decisions before implementing them.
+
+# Current Objective
+
+Build a production-ready luxury tailoring website for Eazi Cut.
+
+Priority:
+
+1. Finish customer-facing experience.
+2. Finish checkout.
+3. Finish payment.
+4. Finish dashboards.
+5. Polish UI.
+6. Launch.
+
+Never generate placeholder code.
+
+Never generate fake APIs.
+
+Always build responsive components.
+
+Always use reusable components.
+
+Prefer server components when appropriate.
+
+Follow accessibility best practices.
+
+Use strict TypeScript.
+
+Avoid duplicated code.
+
+Keep components small and composable.
+
+Every completed feature must be tested before moving to the next.

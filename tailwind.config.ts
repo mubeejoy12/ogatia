@@ -48,6 +48,10 @@ const config: Config = {
       transitionTimingFunction: {
         editorial: "cubic-bezier(0.22, 1, 0.36, 1)",
       },
+      transitionDuration: {
+        "1200": "1200ms",
+        "1400": "1400ms",
+      },
       keyframes: {
         marquee: {
           "0%": { transform: "translateX(0)" },
