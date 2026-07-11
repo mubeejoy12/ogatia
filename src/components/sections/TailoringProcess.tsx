@@ -6,7 +6,10 @@ import { assets } from "@/lib/assets";
 
 export function TailoringProcess() {
   return (
-    <section className="py-24 md:py-32 bg-stone-50">
+    <section
+      aria-label="The tailoring process"
+      className="py-24 md:py-32 bg-stone-50"
+    >
       <div className="container">
         <SectionHeader
           eyebrow="The Process"

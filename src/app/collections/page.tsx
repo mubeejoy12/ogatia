@@ -1,91 +1,73 @@
 import type { Metadata } from "next";
-import Image from "next/image";
-import Link from "next/link";
-import { ArrowUpRight } from "lucide-react";
 import { PageHeader } from "@/components/sections/PageHeader";
 import { CTASection } from "@/components/sections/CTASection";
+import { CollectionCard } from "@/components/sections/CollectionCard";
+import { Stagger, StaggerItem } from "@/components/motion/Reveal";
 import { collections } from "@/lib/data/collections";
-import { Reveal } from "@/components/motion/Reveal";
-import { Button } from "@/components/ui/button";
+import { site } from "@/lib/site";
 
 export const metadata: Metadata = {
   title: "Collections",
   description:
-    "Bespoke, ready-to-wear, wedding and heritage collections from the Eazi Cut atelier in Lagos.",
+    "Six collections from the Eazi Cut atelier — from The Onyx Bespoke to Ivory Wedding, Lagos Heritage and Diaspora. Each a complete wardrobe.",
+  alternates: { canonical: `${site.url}/collections` },
+  openGraph: {
+    title: `Collections · ${site.name}`,
+    description:
+      "Six wardrobes from the Eazi Cut atelier — bespoke, ready-to-wear, wedding and heritage.",
+    url: `${site.url}/collections`,
+    type: "website",
+  },
+};
+
+/**
+ * JSON-LD `CollectionPage` — helps Google index this route as a category
+ * hub. Each item points at its detail page.
+ */
+const collectionPageSchema = {
+  "@context": "https://schema.org",
+  "@type": "CollectionPage",
+  name: "Collections",
+  url: `${site.url}/collections`,
+  isPartOf: { "@type": "WebSite", name: site.name, url: site.url },
+  hasPart: collections.map((c) => ({
+    "@type": "CreativeWork",
+    name: c.name,
+    url: `${site.url}/collections/${c.slug}`,
+    description: c.description,
+    genre: c.category,
+  })),
 };
 
 export default function CollectionsPage() {
   return (
     <>
+      <script
+        type="application/ld+json"
+        // eslint-disable-next-line react/no-danger
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(collectionPageSchema),
+        }}
+      />
+
       <PageHeader
         eyebrow="Collections"
         title="Six wardrobes, one house."
-        intro="Each collection is conceived as a complete wardrobe — from the boardroom to the ballroom, from the heritage agbada to the lightweight diaspora suit. Browse by season, by occasion, or by mood."
+        intro="Each collection is conceived as a complete wardrobe — from the boardroom to the ballroom, from the heritage agbada to the lightweight diaspora suit. Choose one, or commission across all."
       />
 
-      <section className="pb-24 md:pb-32 bg-ivory">
-        <div className="container space-y-28 md:space-y-40">
-          {collections.map((c, i) => {
-            const reverse = i % 2 === 1;
-            return (
-              <article
-                key={c.slug}
-                id={c.slug}
-                className="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-16 items-center scroll-mt-32"
-              >
-                <Reveal
-                  className={
-                    reverse
-                      ? "lg:col-span-7 lg:order-2"
-                      : "lg:col-span-7"
-                  }
-                >
-                  <div className="relative aspect-[4/5] overflow-hidden">
-                    <Image
-                      src={c.image.src}
-                      alt={c.image.alt}
-                      fill
-                      sizes="(min-width: 1024px) 58vw, 100vw"
-                      className="object-cover"
-                    />
-                  </div>
-                </Reveal>
-
-                <Reveal
-                  className={
-                    reverse
-                      ? "lg:col-span-5 lg:order-1 lg:pr-8"
-                      : "lg:col-span-5 lg:pl-8"
-                  }
-                >
-                  <p className="eyebrow">
-                    <span className="rule inline-block align-middle mr-3" />
-                    {String(i + 1).padStart(2, "0")} · {c.category}
-                  </p>
-                  <h2 className="mt-5 font-display text-4xl md:text-5xl lg:text-6xl leading-[1.02] tracking-tightest">
-                    {c.name}
-                  </h2>
-                  <p className="mt-6 text-stone-700 leading-relaxed text-lg">
-                    {c.description}
-                  </p>
-                  <p className="mt-6 eyebrow text-stone-500">
-                    {c.pieces} pieces in this collection
-                  </p>
-                  <div className="mt-10 flex flex-wrap gap-4">
-                    <Button asChild variant="primary">
-                      <Link href="/contact">Commission this collection</Link>
-                    </Button>
-                    <Link
-                      href="/lookbook"
-                      className="inline-flex items-center gap-2 uppercase tracking-widest text-[11px] border-b border-ink pb-1 hover:gap-3 transition-all"
-                    >
-                      See in lookbook <ArrowUpRight size={14} />
-                    </Link>
-                  </div>
-                </Reveal>
-              </article>
-            );
-          })}
+      <section
+        aria-label="Collection index"
+        className="pb-24 md:pb-32 bg-ivory"
+      >
+        <div className="container">
+          <Stagger className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-20">
+            {collections.map((c, i) => (
+              <StaggerItem key={c.slug}>
+                <CollectionCard collection={c} index={i} priority={i < 3} />
+              </StaggerItem>
+            ))}
+          </Stagger>
         </div>
       </section>
 
@@ -94,6 +76,9 @@ export default function CollectionsPage() {
         title="Cannot find what you are looking for?"
         body="Every Eazi Cut commission can be reimagined to your brief. Bring a reference, a fabric, a memory — we build the rest."
         primaryLabel="Start a Commission"
+        primaryHref="/contact"
+        secondaryLabel="See the Lookbook"
+        secondaryHref="/lookbook"
       />
     </>
   );

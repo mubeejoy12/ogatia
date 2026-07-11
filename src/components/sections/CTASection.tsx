@@ -24,7 +24,10 @@ export function CTASection({
   image?: ImageAsset;
 }) {
   return (
-    <section className="relative isolate overflow-hidden bg-ink text-ivory">
+    <section
+      aria-label={eyebrow}
+      className="relative isolate overflow-hidden bg-ink text-ivory"
+    >
       <Image
         src={image.src}
         alt=""

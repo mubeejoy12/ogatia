@@ -9,14 +9,19 @@ import { assets } from "@/lib/assets";
 export function Hero() {
   const hero = assets.hero.home;
   return (
-    <section className="relative h-[100svh] min-h-[640px] w-full overflow-hidden bg-ink text-ivory">
+    <section
+      aria-label="Introduction"
+      className="relative h-[100svh] min-h-[640px] w-full overflow-hidden bg-ink text-ivory"
+    >
       <Image
         src={hero.src}
         alt={hero.alt}
         fill
         priority
+        fetchPriority="high"
         sizes="100vw"
-        className="object-cover object-center opacity-70"
+        quality={90}
+        className="object-cover object-[center_35%] opacity-70"
       />
       <div className="absolute inset-0 bg-gradient-to-b from-ink/60 via-ink/20 to-ink/80" />
 

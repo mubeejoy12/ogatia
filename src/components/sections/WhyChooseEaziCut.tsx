@@ -23,7 +23,10 @@ const pillars = [
 
 export function WhyChooseEaziCut() {
   return (
-    <section className="bg-ink text-ivory py-24 md:py-32 overflow-hidden">
+    <section
+      aria-label="Why choose Eazi Cut"
+      className="bg-ink text-ivory py-24 md:py-32 overflow-hidden"
+    >
       <div className="container grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-20">
         <Reveal className="lg:col-span-5">
           <p className="eyebrow text-ivory/60">

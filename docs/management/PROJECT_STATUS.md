@@ -31,6 +31,8 @@
 
 ## What shipped this reporting period
 
+- ✅ **Ticket 002 — Collections (v0.7.0)** — Collections index rebuilt as a 3-column luxury grid; new dynamic `/collections/[slug]` detail pages for all 6 collections (prerendered as SSG via `generateStaticParams`); `getCollection` / `getRelatedCollections` accessors with `notFound()` handling; `CollectionCard` enhanced with pieces count + explicit "Explore the Collection" CTA; enriched Collection schema with `tagline`, `story[]`, `signaturePieces[]`, `fabric`, `startingPrice`; sitemap now includes 6 detail URLs; per-collection metadata + OG images + canonical URLs + `CollectionPage` JSON-LD; primary detail-page CTA points at `/shop?collection={slug}` — ready to activate the moment Ticket 003 (Shop) lands
+- ✅ **Homepage completed to production quality (v0.6.0)** — dynamic favicon + apple-icon (Next.js `ImageResponse` monogram), web app manifest, branded `not-found.tsx`, root `error.tsx`, `viewport` export with theme colours, `WebSite` JSON-LD, hero image LCP-tuned with `fetchPriority` + `object-position`, all sections `aria-label`'d
 - ✅ Home page (Hero, Brand Statement, Featured Collections, Why Choose, Process, Testimonials, CTA)
 - ✅ Home page hardened for production: page-specific `metadata`, canonical URL, JSON-LD Organization + LocalBusiness schema
 - ✅ Editorial `BrandStatement` section — luxury-house tempo before commerce grid
@@ -81,6 +83,15 @@
 | Lighthouse score (est.) | Not yet measured | pending deployment |
 | Typecheck status | ✅ clean (`tsc --noEmit`) | — |
 | Lint status | ✅ zero warnings (`next lint`) | — |
+| Production build | ✅ 19/19 static routes prerendered | ↑ from 13 |
+| Home HTML size | 3.24 kB | ✅ excellent |
+| Home first-load JS | 157 kB | ✅ excellent |
+| Collections index HTML | 514 B | ✅ excellent |
+| Collection detail HTML (×6) | 514 B each | ✅ excellent |
+| Favicon / apple-icon / manifest | ✅ all present | — |
+| Branded 404 + error boundary | ✅ present | — |
+| Customer shopping experience progress | 33% (Ticket 002 of 6 shipped) | ↑ from 0% |
+| v1.0 launch progress | **~92%** | ↑ from 90% |
 
 ---
 

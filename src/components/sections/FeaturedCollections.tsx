@@ -9,7 +9,10 @@ export function FeaturedCollections({ limit = 4 }: { limit?: number }) {
   const items = collections.slice(0, limit);
 
   return (
-    <section className="py-24 md:py-32 bg-ivory">
+    <section
+      aria-label="Featured collections"
+      className="py-24 md:py-32 bg-ivory"
+    >
       <div className="container">
         <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-8">
           <SectionHeader

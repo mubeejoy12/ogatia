@@ -90,3 +90,34 @@ without wincing — you have the wrong reference.
 
 Stop, tell the user which rule and why the situation required it, and get
 consent before continuing. Do not silently proceed.
+# Git Workflow (Mandatory)
+
+Every completed implementation stage must end with:
+
+1. Run typecheck.
+2. Run lint.
+3. Run production build.
+4. Verify no errors.
+5. Suggest an appropriate Conventional Commit message.
+6. Ask for approval before any Git command that changes history or pushes to the remote.
+7. After approval, provide the exact commands to:
+   - git add
+   - git commit
+   - git push
+
+Never group unrelated changes into one commit.
+
+Each commit must represent one logical unit of work.
+
+Follow Conventional Commits:
+
+feat:
+fix:
+refactor:
+docs:
+style:
+test:
+chore:
+perf:
+build:
+ci:
