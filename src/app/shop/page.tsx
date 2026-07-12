@@ -1,15 +1,15 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { PageHeader } from "@/components/sections/PageHeader";
 import { CTASection } from "@/components/sections/CTASection";
-import { ProductCard } from "@/components/shop/ProductCard";
-import { Stagger, StaggerItem } from "@/components/motion/Reveal";
+import { ShopBrowser } from "@/features/shop/ShopBrowser";
 import { products } from "@/lib/data/products";
 import { site } from "@/lib/site";
 
 export const metadata: Metadata = {
   title: "Shop",
   description:
-    "Ready-to-wear and made-to-measure pieces from the Eazi Cut atelier — suits, shirts, trousers, outerwear, native wear and accessories.",
+    "Ready-to-wear and made-to-measure pieces from the Eazi Cut atelier — suits, shirts, trousers, outerwear, native wear and accessories. Filter by category, collection or price.",
   alternates: { canonical: `${site.url}/shop` },
   openGraph: {
     title: `Shop · ${site.name}`,
@@ -57,18 +57,9 @@ export default function ShopPage() {
         className="pb-24 md:pb-32 bg-ivory"
       >
         <div className="container">
-          <p className="eyebrow text-stone-500">
-            <span className="rule inline-block align-middle mr-3" />
-            {products.length} pieces in the current collection
-          </p>
-
-          <Stagger className="mt-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-16">
-            {products.map((product, i) => (
-              <StaggerItem key={product.slug}>
-                <ProductCard product={product} priority={i < 3} />
-              </StaggerItem>
-            ))}
-          </Stagger>
+          <Suspense fallback={<ShopBrowserFallback count={products.length} />}>
+            <ShopBrowser products={products} />
+          </Suspense>
         </div>
       </section>
 
@@ -82,5 +73,21 @@ export default function ShopPage() {
         secondaryHref="/collections"
       />
     </>
+  );
+}
+
+/**
+ * Server-rendered skeleton served while the client bundle hydrates.
+ * No layout shift — matches the toolbar height and grid rhythm.
+ */
+function ShopBrowserFallback({ count }: { count: number }) {
+  return (
+    <div aria-hidden>
+      <p className="eyebrow text-stone-500">
+        <span className="rule inline-block align-middle mr-3" />
+        {count} pieces
+      </p>
+      <div className="mt-10 border-y border-ink/10 py-6 h-24" />
+    </div>
   );
 }
