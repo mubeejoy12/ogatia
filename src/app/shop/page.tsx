@@ -1,11 +1,9 @@
 import type { Metadata } from "next";
-import Image from "next/image";
-import Link from "next/link";
 import { PageHeader } from "@/components/sections/PageHeader";
 import { CTASection } from "@/components/sections/CTASection";
+import { ProductCard } from "@/components/shop/ProductCard";
 import { Stagger, StaggerItem } from "@/components/motion/Reveal";
 import { products } from "@/lib/data/products";
-import { formatNaira } from "@/lib/format";
 import { site } from "@/lib/site";
 
 export const metadata: Metadata = {
@@ -67,31 +65,7 @@ export default function ShopPage() {
           <Stagger className="mt-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-16">
             {products.map((product, i) => (
               <StaggerItem key={product.slug}>
-                <Link
-                  href={`/shop/${product.slug}`}
-                  aria-label={`View ${product.name}`}
-                  className="group block focus:outline-none focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-2 focus-visible:ring-offset-ivory"
-                >
-                  <div className="relative aspect-[4/5] overflow-hidden bg-stone-100">
-                    <Image
-                      src={product.image.src}
-                      alt={`${product.name} — ${product.image.alt}`}
-                      fill
-                      sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
-                      priority={i < 3}
-                      className="object-cover transition-transform duration-1200 ease-editorial group-hover:scale-105"
-                    />
-                  </div>
-                  <div className="mt-5">
-                    <p className="eyebrow text-stone-500">{product.category}</p>
-                    <h3 className="mt-2 font-display text-xl md:text-2xl tracking-tightest">
-                      {product.name}
-                    </h3>
-                    <p className="mt-3 text-ink font-sans text-sm">
-                      {formatNaira(product.price)}
-                    </p>
-                  </div>
-                </Link>
+                <ProductCard product={product} priority={i < 3} />
               </StaggerItem>
             ))}
           </Stagger>
