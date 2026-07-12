@@ -4,6 +4,8 @@ import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import { CTASection } from "@/components/sections/CTASection";
 import { Reveal } from "@/components/motion/Reveal";
+import { ProductActions } from "@/features/shop/ProductActions";
+import { SizeGuide } from "@/components/shop/SizeGuide";
 import {
   getProduct,
   getProductSlugs,
@@ -203,13 +205,9 @@ export default async function ProductDetailPage({
               <MetaRow label="Delivery" value={delivery} />
             </dl>
 
-            {/* Sizes (visual only in Stage 1 — interactive selector in Stage 2) */}
-            <div className="mt-10">
-              <p className="eyebrow text-stone-500">Available sizes</p>
-              <p className="mt-3 text-stone-700 text-sm">
-                {product.sizes.join(" · ")}
-              </p>
-            </div>
+            <ProductActions product={product} />
+
+            <SizeGuide category={product.category} />
 
             <p className="mt-10 text-xs text-stone-500 max-w-md">
               Every piece can also be commissioned to your measurements. Book a
