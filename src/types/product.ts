@@ -39,6 +39,12 @@ export type Product = {
   image: ImageAsset;
   /** Editorial one-liner used on the card. */
   description: string;
+  /** Available sizes as they should be shown to the customer. */
+  sizes: string[];
+  /** One-line note on how the piece is constructed. */
+  construction: string;
+  /** One-line care instruction. */
+  care: string;
   /** Optional merchandising badge. */
   badge?: ProductBadge;
   /** Stock status. False renders the card with an "Enquire" affordance. */
