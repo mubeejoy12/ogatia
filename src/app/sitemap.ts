@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next";
 import { site } from "@/lib/site";
 import { getCollectionSlugs } from "@/lib/data/collections";
+import { getProductSlugs } from "@/lib/data/products";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const now = new Date();
@@ -24,7 +25,13 @@ export default function sitemap(): MetadataRoute.Sitemap {
     changeFrequency: "monthly" as const,
   }));
 
-  return [...staticRoutes, ...collectionRoutes].map((r) => ({
+  const productRoutes = getProductSlugs().map((slug) => ({
+    path: `/shop/${slug}`,
+    priority: 0.7,
+    changeFrequency: "weekly" as const,
+  }));
+
+  return [...staticRoutes, ...collectionRoutes, ...productRoutes].map((r) => ({
     url: `${site.url}${r.path}`,
     lastModified: now,
     changeFrequency: r.changeFrequency,
