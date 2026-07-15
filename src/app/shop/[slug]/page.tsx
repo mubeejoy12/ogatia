@@ -3,12 +3,15 @@ import Image from "next/image";
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import { CTASection } from "@/components/sections/CTASection";
-import { Reveal } from "@/components/motion/Reveal";
+import { SectionHeader } from "@/components/sections/SectionHeader";
+import { Reveal, Stagger, StaggerItem } from "@/components/motion/Reveal";
 import { ProductActions } from "@/features/shop/ProductActions";
+import { ProductCard } from "@/components/shop/ProductCard";
 import { SizeGuide } from "@/components/shop/SizeGuide";
 import {
   getProduct,
   getProductSlugs,
+  getRelatedProducts,
   getDeliveryEstimate,
 } from "@/lib/data/products";
 import { collections } from "@/lib/data/collections";
@@ -67,6 +70,7 @@ export default async function ProductDetailPage({
   const product = getProduct(slug);
   const collection = collections.find((c) => c.slug === product.collection);
   const delivery = getDeliveryEstimate(product);
+  const related = getRelatedProducts(product.slug, 3);
 
   /**
    * JSON-LD Product — surfaces price, currency and availability to Google
@@ -216,6 +220,30 @@ export default async function ProductDetailPage({
           </Reveal>
         </div>
       </section>
+
+      {/* Related pieces */}
+      {related.length > 0 && (
+        <section
+          aria-label="You may also like"
+          className="py-24 md:py-32 bg-stone-50 border-t border-ink/10"
+        >
+          <div className="container">
+            <SectionHeader
+              eyebrow="Continue browsing"
+              title="You may also like."
+              description="Pieces from the same collection — cut in the same rhythm, ready to layer."
+            />
+
+            <Stagger className="mt-16 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-16">
+              {related.map((r) => (
+                <StaggerItem key={r.slug}>
+                  <ProductCard product={r} />
+                </StaggerItem>
+              ))}
+            </Stagger>
+          </div>
+        </section>
+      )}
 
       <CTASection
         eyebrow="Book a Fitting"
