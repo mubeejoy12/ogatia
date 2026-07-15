@@ -7,6 +7,7 @@ import { Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { nav, site } from "@/lib/site";
 import { Button } from "@/components/ui/button";
+import { CartBadge } from "@/features/cart/CartBadge";
 
 export function Navbar() {
   const pathname = usePathname();
@@ -67,21 +68,25 @@ export function Navbar() {
           })}
         </nav>
 
-        <div className="hidden md:block">
+        <div className="hidden md:flex items-center gap-4">
+          <CartBadge />
           <Button asChild size="sm" variant="primary">
             <Link href="/contact">Book a Fitting</Link>
           </Button>
         </div>
 
-        <button
-          type="button"
-          className="md:hidden p-2 -mr-2 text-ink"
-          aria-label={open ? "Close menu" : "Open menu"}
-          aria-expanded={open}
-          onClick={() => setOpen((v) => !v)}
-        >
-          {open ? <X size={22} /> : <Menu size={22} />}
-        </button>
+        <div className="md:hidden flex items-center gap-2">
+          <CartBadge />
+          <button
+            type="button"
+            className="p-2 -mr-2 text-ink"
+            aria-label={open ? "Close menu" : "Open menu"}
+            aria-expanded={open}
+            onClick={() => setOpen((v) => !v)}
+          >
+            {open ? <X size={22} /> : <Menu size={22} />}
+          </button>
+        </div>
       </div>
 
       {open && (
