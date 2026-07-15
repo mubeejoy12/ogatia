@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { useCart } from "@/features/cart/CartContext";
 import { AddressForm } from "./AddressForm";
@@ -12,6 +13,8 @@ import {
   type DeliveryMethodId,
 } from "./deliveryMethods";
 import type { ShippingAddress } from "./types";
+import { usePaystack } from "./usePaystack";
+import { generateReference } from "@/lib/paystack";
 
 const DELIVERY_STORAGE_KEY = "eazicut:checkout:delivery:v1";
 
@@ -28,6 +31,9 @@ const DELIVERY_STORAGE_KEY = "eazicut:checkout:delivery:v1";
  */
 export function CheckoutView() {
   const cart = useCart();
+  const router = useRouter();
+  const paystack = usePaystack();
+
   const [hydrated, setHydrated] = useState(false);
   const [address, setAddress] = useState<ShippingAddress | null>(null);
   const [isAddressValid, setIsAddressValid] = useState(false);
@@ -75,14 +81,72 @@ export function CheckoutView() {
   }
 
   const method = getDeliveryMethod(deliveryId);
-  const canProceed = isAddressValid && method !== null;
+  const paystackReady =
+    paystack.status === "ready" ||
+    paystack.status === "cancelled" ||
+    paystack.status === "error";
+  const canProceed =
+    isAddressValid &&
+    method !== null &&
+    address !== null &&
+    paystackReady &&
+    paystack.status !== "processing";
 
-  const handleProceed = () => {
-    // TODO(003.2): initialise Paystack with { address, method, cart } here.
-    // Left as a stub so the button renders and the gate logic is verifiable
-    // in Stage 2. Wired up in Ticket 003.2 without markup change.
-    if (!canProceed) return;
+  const isProcessing = paystack.status === "processing";
+
+  const handleProceed = async () => {
+    if (!canProceed || !address || !method) return;
+
+    const total = cart.subtotal + method.price;
+    const reference = generateReference();
+
+    await paystack.pay(
+      {
+        email: address.email,
+        amountNaira: total,
+        reference,
+        currency: "NGN",
+        metadata: {
+          customer_name: address.fullName,
+          phone: address.phone,
+          shipping_country: address.country,
+          delivery_method: method.id,
+          line_items: cart.lines.map((l) => ({
+            slug: l.slug,
+            size: l.size,
+            quantity: l.quantity,
+          })),
+        },
+      },
+      (response) => {
+        // Success — hand off to the confirmation route (Ticket 003.3).
+        router.push(
+          `/checkout/confirmation?ref=${encodeURIComponent(response.reference)}`
+        );
+      }
+    );
   };
+
+  const proceedLabel = isProcessing ? "Opening secure checkout…" : "Continue to Payment";
+
+  // Compose the accessible hint under the button.
+  let hint: string | null = null;
+  if (paystack.status === "missing-key") {
+    hint =
+      "Payment provider is not configured. Set NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY in .env.local.";
+  } else if (paystack.status === "script-error") {
+    hint = paystack.error ?? "Payment provider could not be reached. Please try again.";
+  } else if (paystack.status === "cancelled") {
+    hint = "Payment was cancelled. You can try again whenever you are ready.";
+  } else if (paystack.status === "error") {
+    hint = paystack.error ?? "Something went wrong starting the payment. Please try again.";
+  } else if (!isAddressValid && !method) {
+    hint = "Complete shipping details and choose a delivery method to continue.";
+  } else if (!isAddressValid) {
+    hint = "Complete shipping details to continue.";
+  } else if (!method) {
+    hint = "Choose a delivery method to continue.";
+  }
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-16 items-start">
@@ -141,29 +205,22 @@ export function CheckoutView() {
               disabled={!canProceed}
               onClick={handleProceed}
               aria-disabled={!canProceed}
-              /* Address + delivery both known — reference the gate for a11y */
-              aria-describedby={!canProceed ? "proceed-hint" : undefined}
+              aria-describedby={hint ? "proceed-hint" : undefined}
             >
-              Continue to Payment
+              {proceedLabel}
             </Button>
           </div>
 
-          {!canProceed && (
+          {hint && (
             <p
               id="proceed-hint"
+              role="status"
+              aria-live="polite"
               className="mt-3 text-xs text-stone-500 sm:text-right"
             >
-              {!isAddressValid && !method
-                ? "Complete shipping details and choose a delivery method to continue."
-                : !isAddressValid
-                  ? "Complete shipping details to continue."
-                  : "Choose a delivery method to continue."}
+              {hint}
             </p>
           )}
-
-          {/* Suppress unused-var lint until Ticket 003.2 wires the address into
-              the Paystack initiation payload. */}
-          <span className="sr-only">{address?.email ?? ""}</span>
         </section>
       </div>
 
