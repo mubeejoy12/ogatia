@@ -1,0 +1,34 @@
+# -----------------------------------------------------------------------------
+# Prod profile — every value is read from environment variables. No secrets
+# committed. Every var below is REQUIRED at deploy time; the pod will not
+# start if any is missing (Spring resolves ${VAR} eagerly).
+# -----------------------------------------------------------------------------
+
+spring:
+  datasource:
+    url: ${DATABASE_URL}                    # e.g. jdbc:postgresql://host:5432/eazicut
+    username: ${DATABASE_USERNAME}
+    password: ${DATABASE_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: ${DB_POOL_SIZE:10}
+      minimum-idle: 2
+
+  jpa:
+    hibernate:
+      ddl-auto: validate                    # never let JPA mutate prod schema
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        jdbc:
+          time_zone: UTC
+
+eazicut:
+  allowed-origins: ${ALLOWED_ORIGINS}       # e.g. https://eazicut.com
+
+logging:
+  level:
+    root: INFO
+    com.eazicut: INFO
+    org.springframework.web: WARN

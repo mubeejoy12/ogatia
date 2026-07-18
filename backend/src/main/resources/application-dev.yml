@@ -1,0 +1,35 @@
+# -----------------------------------------------------------------------------
+# Dev profile — in-memory H2 database so `mvnw spring-boot:run` needs no
+# local Postgres install. Change to a local Postgres URL when working on
+# real persistence.
+# -----------------------------------------------------------------------------
+
+spring:
+  datasource:
+    url: jdbc:h2:mem:eazicut;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.H2Dialect
+
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+eazicut:
+  allowed-origins: http://localhost:3000
+
+logging:
+  level:
+    com.eazicut: DEBUG
+    org.springframework.web: INFO
+    org.hibernate.SQL: DEBUG

@@ -1,0 +1,58 @@
+# -----------------------------------------------------------------------------
+# Eazi Cut API — base configuration
+#
+# Profile-specific overrides live in application-{dev,prod}.yml. Pick a
+# profile with `--spring.profiles.active=dev` (or the SPRING_PROFILES_ACTIVE
+# env var). Local `mvnw spring-boot:run` defaults to `dev`.
+# -----------------------------------------------------------------------------
+
+spring:
+  application:
+    name: eazi-cut-api
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+
+  # JPA sensible defaults — overridden per profile
+  jpa:
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: false
+
+  # Return 404 (instead of a stack trace) for unmapped routes so the
+  # global exception handler can shape the response body.
+  mvc:
+    throw-exception-if-no-handler-found: true
+  web:
+    resources:
+      add-mappings: false
+
+server:
+  port: ${PORT:8080}
+  servlet:
+    # Every controller is auto-prefixed with /api/v1 — no @RequestMapping
+    # needs to include it. Flip once when the API branches to v2.
+    context-path: /api/v1
+  error:
+    include-message: never
+    include-stacktrace: never
+    include-binding-errors: never
+
+# Application-level namespaces used by our own beans (see CorsConfig).
+eazicut:
+  allowed-origins: ${ALLOWED_ORIGINS:http://localhost:3000}
+
+management:
+  endpoints:
+    web:
+      # Actuator exposed on the main port for now; move to a separate
+      # management port if the frontend origin ever needs to be denied
+      # actuator access.
+      base-path: /actuator
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
