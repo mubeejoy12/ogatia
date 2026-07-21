@@ -115,6 +115,7 @@
                 </configuration>
             </plugin>
 
+
             <!--
                 Annotation processor order matters:
                   Lombok first (generates getters/setters/constructors),
