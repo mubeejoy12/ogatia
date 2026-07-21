@@ -12,8 +12,11 @@ spring:
     driver-class-name: org.h2.Driver
 
   jpa:
+    # Flyway (see application.yml) is the schema authority in every profile.
+    # Hibernate only validates that the entity model matches the migrated
+    # schema — it never mutates the database.
     hibernate:
-      ddl-auto: create-drop
+      ddl-auto: validate
     show-sql: true
     properties:
       hibernate:
