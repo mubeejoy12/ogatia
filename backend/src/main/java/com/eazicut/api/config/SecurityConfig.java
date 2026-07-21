@@ -2,6 +2,7 @@ package com.eazicut.api.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -24,6 +25,7 @@ import org.springframework.security.web.SecurityFilterChain;
  */
 @Configuration
 @EnableWebSecurity
+@EnableMethodSecurity
 public class SecurityConfig {
 
     @Bean
@@ -31,6 +33,11 @@ public class SecurityConfig {
         http
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                // HTTP Basic is used only until the JWT auth ticket lands. The
+                // dev profile seeds an admin user via spring.security.user.*;
+                // in prod, until real auth ships, the write endpoints on
+                // controllers marked with @PreAuthorize will return 403.
+                .httpBasic(basic -> {})
                 .authorizeHttpRequests(auth -> auth
                         .anyRequest().permitAll()
                 );
