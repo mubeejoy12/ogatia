@@ -45,6 +45,19 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.BAD_REQUEST, "bad_request", ex.getMessage(), request);
     }
 
+    /**
+     * Domain-level conflicts — duplicate slug / SKU, invariant violations.
+     * Feature exceptions extend {@link ConflictException} so this one handler
+     * covers every case without per-exception plumbing.
+     */
+    @ExceptionHandler(ConflictException.class)
+    public ResponseEntity<ApiError> handleConflict(
+            ConflictException ex,
+            HttpServletRequest request
+    ) {
+        return build(HttpStatus.CONFLICT, "conflict", ex.getMessage(), request);
+    }
+
     /** Bean-validation errors on {@code @Valid @RequestBody} payloads. */
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiError> handleValidation(
