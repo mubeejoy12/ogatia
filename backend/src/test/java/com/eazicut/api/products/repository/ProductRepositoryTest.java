@@ -27,8 +27,14 @@ import com.eazicut.api.products.specification.ProductSpecifications;
  * app's {@code @EnableJpaAuditing} is inherited (via the walked-up
  * {@code @SpringBootConfiguration}) so {@code createdAt}/{@code updatedAt}
  * populate correctly without needing a nested test config.
+ *
+ * <p>The slice's default {@code ddl-auto=create-drop} is overridden to
+ * {@code validate} so Flyway (auto-run by the main config) is the schema
+ * authority in tests too — the same migrations that build prod's schema
+ * build the test schema. Any drift between the entity model and the
+ * migration surfaces here immediately, not in a prod deploy.
  */
-@DataJpaTest
+@DataJpaTest(properties = "spring.jpa.hibernate.ddl-auto=validate")
 class ProductRepositoryTest {
 
     @Autowired private ProductRepository productRepository;
