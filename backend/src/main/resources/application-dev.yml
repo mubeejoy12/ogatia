@@ -25,6 +25,15 @@ spring:
       enabled: true
       path: /h2-console
 
+  # Dev-only Basic auth user so @PreAuthorize("hasRole('ADMIN')") endpoints
+  # can be tested locally. In prod these properties are not set, so writes
+  # return 403 until the JWT auth ticket wires real users.
+  security:
+    user:
+      name: admin
+      password: admin
+      roles: ADMIN
+
 eazicut:
   allowed-origins: http://localhost:3000
 
