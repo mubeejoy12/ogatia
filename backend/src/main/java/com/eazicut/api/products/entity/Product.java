@@ -28,6 +28,7 @@ import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 
+import org.hibernate.annotations.BatchSize;
 import org.hibernate.annotations.SQLDelete;
 import org.hibernate.annotations.SQLRestriction;
 
@@ -183,6 +184,7 @@ public class Product extends AbstractAuditableEntity {
     )
     @Column(name = "size", length = 32, nullable = false)
     @OrderBy
+    @BatchSize(size = 25)
     private Set<String> availableSizes = new LinkedHashSet<>();
 
     @ElementCollection(fetch = FetchType.LAZY)
@@ -195,6 +197,7 @@ public class Product extends AbstractAuditableEntity {
     )
     @Column(name = "tag", length = 64, nullable = false)
     @OrderBy
+    @BatchSize(size = 25)
     private Set<String> tags = new LinkedHashSet<>();
 
     // ---------------------------------------------------------------------
@@ -208,6 +211,7 @@ public class Product extends AbstractAuditableEntity {
             fetch = FetchType.LAZY
     )
     @OrderBy("sortOrder ASC")
+    @BatchSize(size = 25)
     private List<ProductImage> images = new ArrayList<>();
 
     @ManyToOne(fetch = FetchType.LAZY)

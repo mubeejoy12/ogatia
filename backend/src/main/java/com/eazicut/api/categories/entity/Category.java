@@ -10,6 +10,8 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 
+import org.hibernate.annotations.BatchSize;
+
 import com.eazicut.api.common.entity.AbstractAuditableEntity;
 
 import lombok.EqualsAndHashCode;
@@ -41,6 +43,7 @@ import lombok.Setter;
                 @Index(name = "idx_category_name", columnList = "name")
         }
 )
+@BatchSize(size = 25)
 public class Category extends AbstractAuditableEntity {
 
     @Id
