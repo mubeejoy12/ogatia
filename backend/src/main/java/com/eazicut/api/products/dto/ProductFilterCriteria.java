@@ -39,4 +39,35 @@ public record ProductFilterCriteria(
         Boolean available,
         ProductStatus status
 ) {
+
+    // -----------------------------------------------------------------
+    // Fluent construction helpers — avoid slotting ten nulls at the call
+    // site when the caller only cares about one or two axes (typically
+    // the convenience controller endpoints for featured / new-arrivals
+    // / bestsellers).
+    // -----------------------------------------------------------------
+
+    public static ProductFilterCriteria empty() {
+        return new ProductFilterCriteria(null, null, null, null, null, null, null, null, null, null);
+    }
+
+    public ProductFilterCriteria withFeatured(Boolean value) {
+        return new ProductFilterCriteria(search, category, collection, minPrice, maxPrice,
+                value, newArrival, bestseller, available, status);
+    }
+
+    public ProductFilterCriteria withNewArrival(Boolean value) {
+        return new ProductFilterCriteria(search, category, collection, minPrice, maxPrice,
+                featured, value, bestseller, available, status);
+    }
+
+    public ProductFilterCriteria withBestseller(Boolean value) {
+        return new ProductFilterCriteria(search, category, collection, minPrice, maxPrice,
+                featured, newArrival, value, available, status);
+    }
+
+    public ProductFilterCriteria withAvailable(Boolean value) {
+        return new ProductFilterCriteria(search, category, collection, minPrice, maxPrice,
+                featured, newArrival, bestseller, value, status);
+    }
 }
