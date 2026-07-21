@@ -24,13 +24,15 @@
 | Phase | Scope | Status | Target |
 |---|---|---|---|
 | **1. Marketing Website** | Home, About, Collections, Lookbook, Contact | 🟢 90% — awaiting deployment + real photography | Aug 2026 |
-| **2. Product Catalogue & Commerce** | Categories, PDPs, cart, checkout, Paystack | ⚪ Not started | Q4 2026 |
+| **2. Product Catalogue & Commerce** | Categories, PDPs, cart, checkout, Paystack | 🟡 Frontend done · Backend: Product module shipped (B002) — Category/Collection/Order/Auth modules pending | Q4 2026 |
 | **3. Bespoke Tailoring Engine** | Measurements, order lifecycle, atelier ops | ⚪ Not started | Q1 2027 |
 
 ---
 
 ## What shipped this reporting period
 
+- ✅ **Ticket B002 — Product Module (backend)** — full production-ready Product feature on top of the Spring Boot foundation (B001). Six atomic stages: (1) entities + auditing base + Category/Collection minimal entities + soft-delete via `@SQLDelete`/`@SQLRestriction`; (2) repositories + `PagedResponse` envelope + validated DTOs + `ProductFilterCriteria`; (3) service layer + MapStruct mapper + `ConflictException` base + duplicate-slug/sku exceptions with 409 mapping; (4) `/api/v1/products` REST CRUD (GET list / by id / by slug, POST/PUT/DELETE) + method-level `@PreAuthorize("hasRole('ADMIN')")` + dev admin seed + integrity/auth/type-mismatch exception handlers; (5) `ProductSpecifications` composable filters + convenience endpoints `/featured`, `/new-arrivals`, `/bestsellers`; (6) `@BatchSize(25)` N+1 mitigation + `@DataJpaTest` repository slice (8 tests) + Mockito service unit tests (9 tests) + updated `backend/README.md` with endpoint recipes. 19/19 tests pass, live-verified via 14+ curl scenarios across every filter axis.
+- ✅ **Ticket B001 — Backend Foundation** — Spring Boot 3.4 on Java 21 baseline, Maven wrapper, dev+prod profiles, CORS, security scaffold, uniform `ApiResponse`/`ApiError` envelopes, `GlobalExceptionHandler`, actuator + friendly `/health`, `NUMERIC(19,4)` money, env-var config throughout.
 - ✅ **Ticket 002 — Collections (v0.7.0)** — Collections index rebuilt as a 3-column luxury grid; new dynamic `/collections/[slug]` detail pages for all 6 collections (prerendered as SSG via `generateStaticParams`); `getCollection` / `getRelatedCollections` accessors with `notFound()` handling; `CollectionCard` enhanced with pieces count + explicit "Explore the Collection" CTA; enriched Collection schema with `tagline`, `story[]`, `signaturePieces[]`, `fabric`, `startingPrice`; sitemap now includes 6 detail URLs; per-collection metadata + OG images + canonical URLs + `CollectionPage` JSON-LD; primary detail-page CTA points at `/shop?collection={slug}` — ready to activate the moment Ticket 003 (Shop) lands
 - ✅ **Homepage completed to production quality (v0.6.0)** — dynamic favicon + apple-icon (Next.js `ImageResponse` monogram), web app manifest, branded `not-found.tsx`, root `error.tsx`, `viewport` export with theme colours, `WebSite` JSON-LD, hero image LCP-tuned with `fetchPriority` + `object-position`, all sections `aria-label`'d
 - ✅ Home page (Hero, Brand Statement, Featured Collections, Why Choose, Process, Testimonials, CTA)
