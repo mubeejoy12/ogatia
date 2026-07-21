@@ -36,8 +36,131 @@ Produces `target/eazi-cut-api-0.1.0-SNAPSHOT.jar` — runnable via `java -jar`.
 
 | Profile | Database | CORS origin | Purpose |
 |---|---|---|---|
-| `dev` (default) | H2 in-memory | `http://localhost:3000` | Local dev without Postgres install |
+| `dev` (default) | H2 in-memory (PostgreSQL compatibility mode) | `http://localhost:3000` | Local dev without Postgres install |
 | `prod` | Postgres via env vars | Set via `ALLOWED_ORIGINS` | Production deployment |
+
+## Database & Migrations
+
+**Flyway is the single source of truth for the database schema in every
+environment.** Hibernate runs in `ddl-auto: validate` mode — it only
+cross-checks that the entity model matches the migrated schema and never
+mutates the database itself.
+
+### Where migrations live
+
+```
+backend/src/main/resources/db/migration/
+└── V1__initial_schema.sql
+```
+
+### Naming convention
+
+`V<version>__<snake_case_description>.sql`
+
+- Version is an integer (or dotted, e.g. `2.1`). Never reuse a number.
+- Two underscores between the version and the description.
+- Description is lower-snake-case, short, human-scannable.
+
+Good: `V2__add_orders_table.sql`, `V3__index_products_created_at.sql`
+Bad: `V2_orders.sql` (single underscore), `V1__foo.sql` (already taken)
+
+### How to add a new migration
+
+Any change that alters the database schema — new entity, new column, new
+index, changed nullability — must ship as a new migration file, otherwise
+Hibernate `validate` refuses to start on next boot (fail-fast).
+
+Workflow:
+
+1. Modify the JPA entity (add field, add annotation, etc.).
+2. Create a new `V<n>__<description>.sql` file with the corresponding DDL.
+3. `./mvnw spring-boot:run` — Flyway applies the new migration to the local
+   H2 database, Hibernate validates that the entity model now matches.
+4. `./mvnw test` — the repository slice test picks up the same migration.
+5. Commit both the entity change and the migration in the same commit.
+
+**Do not** edit `V1__initial_schema.sql` (or any already-applied migration)
+after it has been committed. Flyway detects checksum drift and refuses to
+migrate; a "quick fix" in prod would be catastrophic.
+
+### SQL compatibility
+
+`V1__initial_schema.sql` is written to the intersection of PostgreSQL and
+H2 (`MODE=PostgreSQL`) syntax, so the same file runs in dev + test (H2)
+and prod (PostgreSQL). Keep future migrations to that intersection unless
+you split into vendor-specific directories (e.g. `db/migration/postgresql/`).
+
+Portability guidelines:
+
+- ✅ `UUID`, `TEXT`, `VARCHAR(n)`, `NUMERIC(19,4)`, `BOOLEAN`, `TIMESTAMP(6) WITH TIME ZONE`, `INTEGER`
+- ✅ Standard `CREATE TABLE`, `PRIMARY KEY`, `FOREIGN KEY`, `UNIQUE`, `CHECK`, `CREATE INDEX`
+- ❌ Avoid: `gen_random_uuid()`, PG extensions (`pg_trgm`), GIN/GIST indexes, JSONB, ARRAY types
+- ✅ UUIDs are always application-generated (`@GeneratedValue(strategy = GenerationType.UUID)`)
+- ✅ Timestamps are always application-set (`@CreatedDate` / `@LastModifiedDate`)
+
+### Running with a database
+
+**Local dev (default)** — H2 in-memory. Flyway migrates on every boot,
+Hibernate validates, nothing to configure:
+
+```bash
+./mvnw spring-boot:run
+```
+
+**Local Postgres (optional)** — swap the dev datasource block in
+`application-dev.yml` to point at a local Postgres, or run with prod-style
+env vars:
+
+```bash
+export SPRING_PROFILES_ACTIVE=prod
+export DATABASE_URL=jdbc:postgresql://localhost:5432/eazicut
+export DATABASE_USERNAME=eazicut
+export DATABASE_PASSWORD=…
+export ALLOWED_ORIGINS=http://localhost:3000
+./mvnw spring-boot:run
+```
+
+**Production** — Flyway runs on container startup against the real
+Postgres. Deploy sequence:
+
+1. Deploy the new JAR (with any new `V<n>__*.sql` files bundled inside).
+2. On boot: Flyway inspects `flyway_schema_history`, applies any
+   migrations with a version higher than the current, records them.
+3. Hibernate then validates. If validate fails, the pod refuses to accept
+   traffic — the deploy fails safely without touching data.
+
+The migration is transactional per-file where the database supports it
+(PostgreSQL does; H2 does for most DDL). A failed migration leaves the
+database at the previous state.
+
+### Legacy schema (one-off)
+
+If you ever inherit a database that already has tables but no
+`flyway_schema_history`, Flyway will refuse to run because
+`baseline-on-migrate: false` (deliberate — protects against silent-skip
+disasters). The correct response is a one-off manual baseline:
+
+```bash
+./mvnw flyway:baseline -Dflyway.url=… -Dflyway.user=… -Dflyway.password=…
+```
+
+Then the next deploy picks up cleanly.
+
+### Inspecting migrations
+
+**In dev (H2 console)** — visit `http://localhost:8080/api/v1/h2-console`
+(when the dev profile is active), log in with the URL from
+`application-dev.yml`, and run:
+
+```sql
+SELECT * FROM flyway_schema_history ORDER BY installed_rank;
+```
+
+**Via Flyway plugin** — from `backend/`:
+
+```bash
+./mvnw flyway:info
+```
 
 Select with:
 
