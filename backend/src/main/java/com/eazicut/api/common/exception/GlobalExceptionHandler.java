@@ -6,11 +6,16 @@ import jakarta.servlet.http.HttpServletRequest;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.mapping.PropertyReferenceException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.NoHandlerFoundException;
 
 import com.eazicut.api.common.dto.ApiError;
@@ -84,6 +89,101 @@ public class GlobalExceptionHandler {
             HttpServletRequest request
     ) {
         return build(HttpStatus.NOT_FOUND, "route_not_found", "No handler for " + ex.getRequestURL(), request);
+    }
+
+    /**
+     * DB integrity constraint violation — unique keys, foreign keys, NOT NULL.
+     * Almost always a race between the service's uniqueness probe and the DB
+     * (or a bad FK reference); either way it is a semantic conflict, not a
+     * server bug, so we translate to 409.
+     */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ApiError> handleIntegrity(
+            DataIntegrityViolationException ex,
+            HttpServletRequest request
+    ) {
+        log.warn("Data integrity violation on {} {}: {}",
+                request.getMethod(), request.getRequestURI(), ex.getMostSpecificCause().getMessage());
+        return build(
+                HttpStatus.CONFLICT,
+                "conflict",
+                "The request conflicts with existing data.",
+                request
+        );
+    }
+
+    /**
+     * Bad sort property in a Pageable — e.g. {@code ?sort=nonexistent,asc}.
+     * Spring Data throws PropertyReferenceException; surface it as a 400 so
+     * clients see an actionable error rather than a 500.
+     */
+    @ExceptionHandler(PropertyReferenceException.class)
+    public ResponseEntity<ApiError> handleBadSort(
+            PropertyReferenceException ex,
+            HttpServletRequest request
+    ) {
+        return build(
+                HttpStatus.BAD_REQUEST,
+                "invalid_sort",
+                "Unknown sort property: '%s'.".formatted(ex.getPropertyName()),
+                request
+        );
+    }
+
+    /**
+     * Path or query parameter can't be converted to the target type — e.g. a
+     * non-UUID passed to {@code GET /products/{id}}, or a garbage value for
+     * an enum query param.
+     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiError> handleTypeMismatch(
+            MethodArgumentTypeMismatchException ex,
+            HttpServletRequest request
+    ) {
+        String expected = ex.getRequiredType() != null ? ex.getRequiredType().getSimpleName() : "expected type";
+        return build(
+                HttpStatus.BAD_REQUEST,
+                "invalid_parameter",
+                "Parameter '%s' must be a valid %s.".formatted(ex.getName(), expected),
+                request
+        );
+    }
+
+    /**
+     * Missing / invalid credentials on an endpoint that requires them.
+     * Distinct from {@link AccessDeniedException} — the caller isn't
+     * <em>authenticated at all</em>, so the correct answer is 401 (client
+     * should present credentials), not 403 (credentials rejected).
+     */
+    @ExceptionHandler(AuthenticationException.class)
+    public ResponseEntity<ApiError> handleUnauthenticated(
+            AuthenticationException ex,
+            HttpServletRequest request
+    ) {
+        return build(
+                HttpStatus.UNAUTHORIZED,
+                "unauthenticated",
+                "Authentication is required to access this resource.",
+                request
+        );
+    }
+
+    /**
+     * Authenticated principal lacks the authority the endpoint requires
+     * (e.g. {@code @PreAuthorize("hasRole('ADMIN')")} on a POST while the
+     * caller is anonymous or a non-admin user).
+     */
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ApiError> handleAccessDenied(
+            AccessDeniedException ex,
+            HttpServletRequest request
+    ) {
+        return build(
+                HttpStatus.FORBIDDEN,
+                "forbidden",
+                "You do not have permission to perform this action.",
+                request
+        );
     }
 
     /**
