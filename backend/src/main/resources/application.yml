@@ -36,11 +36,17 @@ spring:
         max-page-size: 100
         one-indexed-parameters: false
 
-  # Flyway — schema versioning. Off in Stage 1 of B-INFRA-001; the
-  # V1 baseline migration lands in Stage 2 and enabled: true is flipped
-  # simultaneously with ddl-auto → validate in Stage 3.
+  # Flyway is the schema authority. Hibernate is set to ddl-auto=validate
+  # in every profile (application-dev.yml and application-prod.yml) so it
+  # only cross-checks that the entity model matches the migrated schema —
+  # it never mutates the database itself.
+  #
+  # baseline-on-migrate is deliberately false: we always start from an
+  # empty schema and let V1 run. If a partial pre-Flyway schema is ever
+  # encountered on prod, the correct response is a one-off manual
+  # `mvn flyway:baseline` rather than silently skipping migrations.
   flyway:
-    enabled: false
+    enabled: true
     locations: classpath:db/migration
     baseline-on-migrate: false
     validate-on-migrate: true
