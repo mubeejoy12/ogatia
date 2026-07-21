@@ -88,6 +88,37 @@ public class ProductController {
         return ApiResponse.of(productService.getBySlug(slug));
     }
 
+    // ---- Curated storefront lists ----------------------------------------
+    // Delegate to `list` with a preset criteria — one source of truth for
+    // pagination + sort + response envelope.
+
+    @GetMapping("/featured")
+    public PagedResponse<ProductResponse> featured(
+            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC)
+            Pageable pageable
+    ) {
+        return PagedResponse.from(productService.list(
+                ProductFilterCriteria.empty().withFeatured(true), pageable));
+    }
+
+    @GetMapping("/new-arrivals")
+    public PagedResponse<ProductResponse> newArrivals(
+            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC)
+            Pageable pageable
+    ) {
+        return PagedResponse.from(productService.list(
+                ProductFilterCriteria.empty().withNewArrival(true), pageable));
+    }
+
+    @GetMapping("/bestsellers")
+    public PagedResponse<ProductResponse> bestsellers(
+            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC)
+            Pageable pageable
+    ) {
+        return PagedResponse.from(productService.list(
+                ProductFilterCriteria.empty().withBestseller(true), pageable));
+    }
+
     // ---------------------------------------------------------------------
     // Writes (ADMIN)
     // ---------------------------------------------------------------------
