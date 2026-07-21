@@ -48,6 +48,21 @@
             <artifactId>spring-boot-starter-data-jpa</artifactId>
         </dependency>
 
+        <!--
+            Flyway — schema versioning. flyway-core handles H2 directly;
+            flyway-database-postgresql is required separately since
+            Flyway 10 split PostgreSQL support into its own module.
+            Spring Boot manages both versions transitively.
+        -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+        </dependency>
+
         <!-- Security (scaffold: stateless, JSON API, permit-all until features land) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
