@@ -27,6 +27,15 @@ spring:
     resources:
       add-mappings: false
 
+  # Bound pagination server-side so a malicious ?size=1000000 request can't
+  # exhaust memory. Clients requesting above the cap get the cap back.
+  data:
+    web:
+      pageable:
+        default-page-size: 20
+        max-page-size: 100
+        one-indexed-parameters: false
+
 server:
   port: ${PORT:8080}
   servlet:
