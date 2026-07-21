@@ -36,6 +36,15 @@ spring:
         max-page-size: 100
         one-indexed-parameters: false
 
+  # Flyway — schema versioning. Off in Stage 1 of B-INFRA-001; the
+  # V1 baseline migration lands in Stage 2 and enabled: true is flipped
+  # simultaneously with ddl-auto → validate in Stage 3.
+  flyway:
+    enabled: false
+    locations: classpath:db/migration
+    baseline-on-migrate: false
+    validate-on-migrate: true
+
 server:
   port: ${PORT:8080}
   servlet:
