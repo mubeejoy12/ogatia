@@ -29,8 +29,10 @@ import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 
 import org.hibernate.annotations.BatchSize;
+import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.SQLDelete;
 import org.hibernate.annotations.SQLRestriction;
+import org.hibernate.type.SqlTypes;
 
 import com.eazicut.api.categories.entity.Category;
 import com.eazicut.api.collections.entity.Collection;
@@ -143,7 +145,15 @@ public class Product extends AbstractAuditableEntity {
     // Lifecycle + merchandising flags
     // ---------------------------------------------------------------------
 
+    /**
+     * Persisted as plain {@code VARCHAR(20)} via {@link JdbcTypeCode}. Without
+     * this override, Hibernate 6 uses a native ENUM type on H2 + PostgreSQL,
+     * which drags PG's {@code CREATE TYPE} ceremony into every migration and
+     * makes portable DDL awkward. VARCHAR is universal, greppable, and
+     * evolvable without schema surgery.
+     */
     @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
     @Column(nullable = false, length = 20)
     private ProductStatus status = ProductStatus.DRAFT;
 
