@@ -23,6 +23,7 @@ import com.eazicut.api.products.exception.DuplicateSkuException;
 import com.eazicut.api.products.exception.DuplicateSlugException;
 import com.eazicut.api.products.mapper.ProductMapper;
 import com.eazicut.api.products.repository.ProductRepository;
+import com.eazicut.api.products.specification.ProductSpecifications;
 
 import lombok.RequiredArgsConstructor;
 
@@ -83,16 +84,20 @@ public class ProductService {
     }
 
     /**
-     * Paginated listing.
+     * Paginated listing with dynamic filtering.
      *
-     * <p>Stage 3 delegates to {@code findAll(pageable)}; Stage 5 replaces
-     * this call with a spec-driven query using the {@code criteria}
-     * argument to compose predicates. The public signature does not
-     * change between stages.
+     * <p>Every axis in {@code criteria} is composed into a single
+     * {@code Specification<Product>} by {@link ProductSpecifications}.
+     * Absent axes contribute no predicate — a bare {@code list(empty(), pageable)}
+     * returns every non-deleted product paginated.
+     *
+     * <p>Runs {@code readOnly = true} so Hibernate skips dirty checking.
      */
     @Transactional(readOnly = true)
     public Page<ProductResponse> list(ProductFilterCriteria criteria, Pageable pageable) {
-        return productRepository.findAll(pageable).map(mapper::toResponse);
+        return productRepository
+                .findAll(ProductSpecifications.matching(criteria), pageable)
+                .map(mapper::toResponse);
     }
 
     // ---------------------------------------------------------------------
