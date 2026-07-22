@@ -18,7 +18,13 @@ export default function ShopLoading() {
       <section aria-label="Loading product catalogue" className="pb-24 md:pb-32 bg-ivory">
         <div className="container">
           <Skeleton className="h-4 w-40 mt-1" />
-          <div className="mt-10 border-y border-ink/10 h-24" />
+          {/* Toolbar — two rows in the real layout (search+category+collection+sort,
+              then min/max price + availability); the skeleton reflects the same
+              vertical rhythm so hydration doesn't jump. */}
+          <div className="mt-10 border-y border-ink/10 py-6 space-y-6">
+            <div className="h-11" />
+            <div className="h-11" />
+          </div>
           <div className="mt-14 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-16">
             {Array.from({ length: 6 }).map((_, i) => (
               <div key={i}>
