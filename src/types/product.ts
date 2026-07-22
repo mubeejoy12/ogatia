@@ -49,4 +49,19 @@ export type Product = {
   badge?: ProductBadge;
   /** Stock status. False renders the card with an "Enquire" affordance. */
   available: boolean;
+  // -------------------------------------------------------------------------
+  // Optional detail-view fields — populated by the API adapter from the
+  // backend ProductResponse. Absent on mock-data products; present on
+  // API-sourced products where the backend supplies them.
+  // -------------------------------------------------------------------------
+  /** Server-issued UUID. Optional so mock data doesn't need to carry one. */
+  id?: string;
+  /** Longer editorial copy for the PDP; falls back to `description` if absent. */
+  fullDescription?: string;
+  /** Short editorial copy for cards; falls back to `description` if absent. */
+  shortDescription?: string;
+  /** Fabric one-liner (e.g. "Loro Piana super-120s wool"). */
+  fabricType?: string | null;
+  /** Colour one-liner. */
+  color?: string | null;
 };
