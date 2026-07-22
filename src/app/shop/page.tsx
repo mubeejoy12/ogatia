@@ -2,8 +2,16 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { PageHeader } from "@/components/sections/PageHeader";
 import { CTASection } from "@/components/sections/CTASection";
-import { ShopBrowser } from "@/features/shop/ShopBrowser";
-import { products } from "@/lib/data/products";
+import { ShopBrowser, type ProductPage } from "@/features/shop/ShopBrowser";
+import { fetchProducts } from "@/lib/api/products";
+import { mapApiProductPage } from "@/lib/api/adapters/product";
+import {
+  DEFAULT_PAGE_SIZE,
+  readFilterState,
+  readPageIndex,
+  toApiFilter,
+  type RawSearchParams,
+} from "@/features/shop/backendFilter";
 import { site } from "@/lib/site";
 
 export const metadata: Metadata = {
@@ -20,24 +28,51 @@ export const metadata: Metadata = {
   },
 };
 
-/**
- * JSON-LD ItemList — helps Google index the Shop as a product hub and
- * surface individual products for rich search results.
- */
-const itemListSchema = {
-  "@context": "https://schema.org",
-  "@type": "ItemList",
-  name: "Eazi Cut Shop",
-  numberOfItems: products.length,
-  itemListElement: products.map((p, i) => ({
-    "@type": "ListItem",
-    position: i + 1,
-    url: `${site.url}/shop/${p.slug}`,
-    name: p.name,
-  })),
-};
+// This page reads live URL params + calls the backend on every request,
+// so opting it out of static rendering makes the contract explicit.
+export const dynamic = "force-dynamic";
 
-export default function ShopPage() {
+export default async function ShopPage({
+  searchParams,
+}: {
+  searchParams: Promise<RawSearchParams>;
+}) {
+  const raw = await searchParams;
+  const filterState = readFilterState(raw);
+  const currentPage = readPageIndex(raw);
+
+  // Backend uses 0-indexed pages; the URL and UI use 1-indexed. Translate
+  // at the boundary. Client sort mode "featured" collapses to the
+  // backend's default (createdAt,desc); everything else maps 1:1.
+  const backendPage = await fetchProducts({
+    ...toApiFilter(filterState),
+    page: currentPage - 1,
+    size: DEFAULT_PAGE_SIZE,
+  });
+
+  const mapped = mapApiProductPage(backendPage);
+  const page: ProductPage = {
+    items: mapped.items,
+    currentPage,
+    totalPages: Math.max(mapped.totalPages, 1),
+    totalElements: mapped.totalElements,
+  };
+
+  // JSON-LD reflects what the customer currently sees, not the full
+  // catalogue — Google prefers pages that describe themselves honestly.
+  const itemListSchema = {
+    "@context": "https://schema.org",
+    "@type": "ItemList",
+    name: "Eazi Cut Shop",
+    numberOfItems: mapped.totalElements,
+    itemListElement: mapped.items.map((p, i) => ({
+      "@type": "ListItem",
+      position: (currentPage - 1) * DEFAULT_PAGE_SIZE + i + 1,
+      url: `${site.url}/shop/${p.slug}`,
+      name: p.name,
+    })),
+  };
+
   return (
     <>
       <script
@@ -57,8 +92,10 @@ export default function ShopPage() {
         className="pb-24 md:pb-32 bg-ivory"
       >
         <div className="container">
-          <Suspense fallback={<ShopBrowserFallback count={products.length} />}>
-            <ShopBrowser products={products} />
+          <Suspense
+            fallback={<ShopBrowserFallback count={page.totalElements} />}
+          >
+            <ShopBrowser page={page} />
           </Suspense>
         </div>
       </section>
@@ -77,8 +114,8 @@ export default function ShopPage() {
 }
 
 /**
- * Server-rendered skeleton served while the client bundle hydrates.
- * No layout shift — matches the toolbar height and grid rhythm.
+ * Server-rendered skeleton served while the client bundle hydrates the
+ * toolbar. No layout shift — matches the header + toolbar height.
  */
 function ShopBrowserFallback({ count }: { count: number }) {
   return (
