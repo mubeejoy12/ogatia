@@ -74,6 +74,9 @@ export function toApiFilter(state: FilterState): ApiProductFilter {
       ? CATEGORY_SLUG.get(state.category)!
       : undefined,
     collection: state.collection ?? undefined,
+    minPrice: state.minPrice ?? undefined,
+    maxPrice: state.maxPrice ?? undefined,
+    available: state.available ?? undefined,
     sort: toApiSort(state.sort),
   };
 }
