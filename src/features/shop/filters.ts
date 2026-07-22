@@ -26,6 +26,12 @@ export type FilterState = {
   category: ProductCategory | null;
   collection: CollectionSlug | null;
   sort: SortMode;
+  /** Inclusive lower bound in whole Naira. `null` = no bound. */
+  minPrice: number | null;
+  /** Inclusive upper bound in whole Naira. `null` = no bound. */
+  maxPrice: number | null;
+  /** Show only in-stock ACTIVE products. `null` = no filter. */
+  available: boolean | null;
 };
 
 export const emptyFilters: FilterState = {
@@ -33,6 +39,9 @@ export const emptyFilters: FilterState = {
   category: null,
   collection: null,
   sort: "featured",
+  minPrice: null,
+  maxPrice: null,
+  available: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -67,7 +76,22 @@ export function parseFilters(
     ? (rawSort as SortMode)
     : "featured";
 
-  return { q, category, collection, sort };
+  const minPrice = parsePositiveInt(params.get("minPrice"));
+  const maxPrice = parsePositiveInt(params.get("maxPrice"));
+
+  const rawAvailable = params.get("available");
+  const available =
+    rawAvailable === "true" ? true : rawAvailable === "false" ? false : null;
+
+  return { q, category, collection, sort, minPrice, maxPrice, available };
+}
+
+/** Non-negative integer parser — anything invalid returns null. */
+function parsePositiveInt(raw: string | null): number | null {
+  if (raw === null || raw.trim() === "") return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.floor(n);
 }
 
 /**
@@ -80,6 +104,9 @@ export function serialiseFilters(state: FilterState): string {
   if (state.category) params.set("category", state.category);
   if (state.collection) params.set("collection", state.collection);
   if (state.sort !== "featured") params.set("sort", state.sort);
+  if (state.minPrice !== null) params.set("minPrice", String(state.minPrice));
+  if (state.maxPrice !== null) params.set("maxPrice", String(state.maxPrice));
+  if (state.available !== null) params.set("available", String(state.available));
   const s = params.toString();
   return s ? `?${s}` : "";
 }
@@ -90,7 +117,10 @@ export function hasActiveFilters(state: FilterState): boolean {
     state.q !== "" ||
     state.category !== null ||
     state.collection !== null ||
-    state.sort !== "featured"
+    state.sort !== "featured" ||
+    state.minPrice !== null ||
+    state.maxPrice !== null ||
+    state.available !== null
   );
 }
 
