@@ -40,6 +40,14 @@ export function mapApiProduct(api: ApiProductResponse): Product {
     care: "",
     badge: resolveBadge(api),
     available: isAvailable(api),
+    // Optional detail-view fields — API-sourced products carry them,
+    // mock-data products don't. The PDP hides empty rows and falls back
+    // to `description` when full/short descriptions are absent.
+    id: api.id,
+    fullDescription: api.fullDescription,
+    shortDescription: api.shortDescription,
+    fabricType: api.fabricType,
+    color: api.color,
   };
 }
 
