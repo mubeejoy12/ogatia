@@ -6,8 +6,8 @@ import { ProductCard } from "@/components/shop/ProductCard";
 import type { Product } from "@/types/product";
 import { ShopToolbar } from "./ShopToolbar";
 import { ShopEmptyState } from "./ShopEmptyState";
+import { ShopPagination } from "./ShopPagination";
 import {
-  applyFilters,
   emptyFilters,
   hasActiveFilters,
   parseFilters,
@@ -16,32 +16,50 @@ import {
 } from "./filters";
 
 /**
- * The interactive shopping surface.
- *
- * Reads the URL as the single source of truth for filter state, so:
- *   · Every filter combination is deep-linkable and shareable
- *   · Back / forward buttons behave predictably
- *   · The incoming `?collection={slug}` from Ticket 002.1's detail-page
- *     CTAs applies automatically on first render
- *
- * Uses `router.replace` (not `push`) so filter selections don't spawn
- * history entries — users don't expect Back to undo each dropdown.
+ * Paginated view of products, as delivered by the server component after
+ * calling the backend and running the adapter. Mirrors the backend's
+ * `PagedResponse<T>` (via `mapApiProductPage`) but with 1-indexed
+ * `currentPage` for customer-facing URLs.
  */
-export function ShopBrowser({ products }: { products: readonly Product[] }) {
+export type ProductPage = {
+  items: Product[];
+  /** 1-indexed for the URL/UI. */
+  currentPage: number;
+  totalPages: number;
+  totalElements: number;
+};
+
+/**
+ * The interactive shop surface.
+ *
+ * The URL is the single source of truth for filter, sort and page state.
+ * The server component parses the URL, fetches the matching page from
+ * the backend, and passes the result as {@link ProductPage}. This
+ * component:
+ *
+ *  · displays the current filter state in the toolbar
+ *  · renders the pre-filtered grid
+ *  · mounts pagination controls
+ *  · on any toolbar change, updates the URL via `router.replace` (no
+ *    history entries — Back should not undo dropdown selections);
+ *    the server component re-runs the fetch and re-supplies the props
+ */
+export function ShopBrowser({ page }: { page: ProductPage }) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
 
   const state = useMemo(() => parseFilters(searchParams), [searchParams]);
-  const filtered = useMemo(
-    () => applyFilters(products, state),
-    [products, state]
-  );
   const isFiltered = hasActiveFilters(state);
 
   const setState = useCallback(
     (next: FilterState) => {
-      router.replace(`${pathname}${serialiseFilters(next)}`, { scroll: false });
+      // Any filter change collapses back to page 1 — the current page
+      // number is meaningless against a different result set.
+      const params = new URLSearchParams(serialiseFilters(next).replace(/^\?/, ""));
+      params.delete("page");
+      const qs = params.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
     },
     [router, pathname]
   );
@@ -53,9 +71,9 @@ export function ShopBrowser({ products }: { products: readonly Product[] }) {
       <div className="flex flex-col sm:flex-row sm:items-baseline sm:justify-between gap-3">
         <p className="eyebrow text-stone-500">
           <span className="rule inline-block align-middle mr-3" />
-          {filtered.length === products.length
-            ? `${products.length} pieces`
-            : `${filtered.length} of ${products.length} pieces`}
+          {page.totalElements === 1
+            ? "1 piece"
+            : `${page.totalElements} pieces`}
         </p>
         {isFiltered && (
           <button
@@ -70,18 +88,22 @@ export function ShopBrowser({ products }: { products: readonly Product[] }) {
 
       <ShopToolbar state={state} onChange={setState} />
 
-      {filtered.length === 0 ? (
+      {page.items.length === 0 ? (
         <ShopEmptyState onClear={clear} />
       ) : (
-        <div className="mt-14 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-16">
-          {filtered.map((product, i) => (
-            <ProductCard
-              key={product.slug}
-              product={product}
-              priority={i < 3}
-            />
-          ))}
-        </div>
+        <>
+          <div className="mt-14 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-16">
+            {page.items.map((product, i) => (
+              <ProductCard
+                key={product.slug}
+                product={product}
+                priority={i < 3}
+              />
+            ))}
+          </div>
+
+          <ShopPagination page={page.currentPage} totalPages={page.totalPages} />
+        </>
       )}
     </>
   );
