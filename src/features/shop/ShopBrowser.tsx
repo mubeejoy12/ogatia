@@ -89,7 +89,10 @@ export function ShopBrowser({ page }: { page: ProductPage }) {
       <ShopToolbar state={state} onChange={setState} />
 
       {page.items.length === 0 ? (
-        <ShopEmptyState onClear={clear} />
+        <ShopEmptyState
+          variant={isFiltered ? "no-results" : "empty-catalogue"}
+          onClear={clear}
+        />
       ) : (
         <>
           <div className="mt-14 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-16">
