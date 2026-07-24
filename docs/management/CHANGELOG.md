@@ -9,12 +9,130 @@ Dates use ISO 8601. Unreleased sits at the top; each release moves it below.
 ## [Unreleased]
 
 ### Planned
-- Ticket 003 — Shop (product catalogue index at `/shop`, with `?collection=` query filter already wired from Collections)
-- Deploy v0.7.0 to Vercel production
+- Deploy v0.8.0 to Vercel production (frontend) alongside a hosted backend instance
 - Wire `services/contact.ts` to Resend (real inbox); read `?collection=` query on Contact form to pre-fill enquiry
 - Replace top 3 placeholder images with commissioned photography
 - NDPR consent banner + `/privacy` + `/terms` pages
 - Plausible analytics
+- Backend Category / Collection / Order / Auth modules
+
+---
+
+## [0.8.0] — 2026-07-23 — Ticket F003 · Frontend Product API integration
+
+The Shop and Product Detail pages now consume the Spring Boot Product API
+end-to-end. No mock product data is referenced by the shop flow.
+
+### Added
+- **Typed API client** — `src/lib/api/{client,config,errors,products}.ts` and
+  `src/types/api/{envelope,product}.ts`. Envelope-aware `apiGet<T>` with query
+  composition, Next.js cache directives, and typed error subclasses
+  (`ApiClientError`, `ApiNotFoundError`, `ApiValidationError`, `ApiAuthError`,
+  `ApiNetworkError`). All backend contracts mirror
+  `com.eazicut.api.products.dto.ProductResponse` verbatim.
+- **Product adapter layer** — `src/lib/api/adapters/product.ts`. Handles every
+  known contract mismatch: images[] → primary image, shortDescription for
+  cards, category.name / collection.slug extraction, computed
+  `available = status==="ACTIVE" && stockQuantity>0`, `newArrival` → "New"
+  badge. Fields the backend doesn't yet emit (construction, care) become
+  empty strings so the UI can hide them.
+- **Server-side Shop** — `/shop` is now an async server component with
+  `export const dynamic = "force-dynamic"`. Reads URL as single source of
+  truth, calls `fetchProducts` with translated backend filter, passes
+  `ProductPage` to the client `ShopBrowser`. JSON-LD `ItemList` reflects the
+  current page.
+- **Price + availability filters, debounced search, backend pagination** —
+  `?minPrice`, `?maxPrice`, `?available=true`, `?q=` (300ms debounce with URL
+  resync), `?page=` (1-indexed for humans, translated to Spring's 0-indexed
+  boundary), `?sort=` (`price-asc`, `price-desc`, `featured` collapses to
+  backend default). All arithmetic proven live against a 30-product seed.
+- **Empty states** — `ShopEmptyState` picks between `"no-results"`
+  (filters returned 0, offers Clear-all) and `"empty-catalogue"` (atelier
+  hasn't published, only Speak-With-Us CTA) based on
+  `hasActiveFilters(state) + items.length === 0`.
+- **Server-side PDP** — `/shop/[slug]` is a full async server component.
+  `fetchProductBySlug` catches `ApiNotFoundError` → `notFound()`. Related
+  products via `fetchProducts({collection, size: 6})`, filter self, slice 3;
+  failure is non-fatal (strip omits). MetaRow hides on empty. `Product`
+  JSON-LD reads product id as `sku`, `fullDescription` for description.
+- **Branded not-found for PDP** — `src/app/shop/[slug]/not-found.tsx` with
+  "This piece is no longer here." copy, Return-to-Shop + Write-to-the-Atelier
+  CTAs, `robots: { index: false, follow: false }` so bad slugs don't pollute
+  SEO.
+- **Dynamic sitemap with graceful degradation** — `src/app/sitemap.ts` pages
+  through the backend up to 20 pages × 100 items (2000-product cap). If the
+  backend is unreachable at build, logs a warning and returns the static
+  routes only (build still succeeds).
+
+### Changed
+- **Product type** — added optional `id`, `fullDescription`,
+  `shortDescription`, `fabricType`, `color`. Mock products don't carry these;
+  API-adapted products do.
+- **`getDeliveryEstimate`** extracted from mock into `src/lib/delivery.ts`.
+- **`tailwind.config.ts`** — replaced `require("tailwindcss-animate")` with a
+  proper ES import; `require` was crashing `next dev` on Node 23.
+- **`.env.example`** — `NEXT_PUBLIC_API_URL` block documenting local /
+  preview / production URLs.
+
+### Verified (end-to-end)
+Live gauntlet against the running Spring Boot backend with 26 seeded products
+spanning six colour/fabric families, prices ₦100k–₦800k, one out-of-stock
+(`ivory-robe-1`, stock=0), newArrival + featured flags mixed:
+
+| # | Check | Result |
+|---|---|---|
+| 1  | Real products in Shop (SSR HTML) | ✅ 24 cards on page 1, 2 on page 2 |
+| 2  | No mock product imports in shop/PDP/sitemap | ✅ `grep -rn "@/lib/data/products" src/` → 0 matches |
+| 3  | Search `?q=onyx` | ✅ narrows to 6, other families excluded |
+| 4  | Category filter | ⚠ N/A — backend has no Category REST endpoints yet; frontend axis wired and ready |
+| 5  | Collection filter | ⚠ N/A — backend has no Collection REST endpoints yet; frontend axis wired and ready |
+| 6  | Filter `?minPrice=400000` | ✅ 19 results |
+| 6  | Filter `?maxPrice=200000` | ✅ 4 results |
+| 6  | Filter `?minPrice=200000&maxPrice=400000` | ✅ 6 results |
+| 7  | Filter `?available=true` | ✅ ivory-robe-1 (stock=0) hidden |
+| 8  | Sort `?sort=price-asc` first / `?sort=price-desc` first | ✅ ash-coat-1 @ ₦100k / slate-10 @ ₦800k |
+| 9  | Pagination page 1 / page 2 | ✅ disjoint, "of 2" control renders |
+| 10 | Shop product links resolve | ✅ every SSR `href="/shop/<slug>"` returns HTTP 200 |
+| 11 | PDP loads real backend data | ✅ real name / fabric / colour surfaced from adapter |
+| 12 | PDP displays correct info | ✅ title, fabric row, JSON-LD Product + sku, "New" badge from `newArrival=true` |
+| 13 | Invalid slug → branded not-found | ✅ "This piece is no longer here" + both CTAs + `noindex` |
+| 14 | Backend killed → `/shop` and PDP | ✅ HTTP 200, layout markers intact, zero backend text leaked |
+| 15 | Loading states | ✅ routes correctly `ƒ Dynamic`, `Cache-Control: no-store` observed |
+| 16 | Empty catalogue (0 products, no filters) | ✅ "cutting table" copy renders, Clear-all correctly absent, Speak-With-Us CTA present |
+| 17 | Empty search/filter results | ✅ "match your selection" + Clear-all button |
+| 18 | Related products | ✅ fail-safe path proven — PDP renders when related list is empty (products lack collections; adapter emits `[]`, strip omits) |
+| 19 | Sitemap with backend up | ✅ 26 `<loc>shop/<slug></loc>` entries emitted |
+| 20 | Sitemap with backend down | ✅ HTTP 200, 0 product URLs, 12 static URLs retained |
+| 21 | No raw backend leaks anywhere | ✅ strict-regex match count 0 across 4 URLs incl. backend-down (searched: `org.springframework`, `com.eazicut`, `ECONNREFUSED`, `SocketException`, `java.lang`, `ApiNetworkError`) |
+
+### Build metrics (v0.8.0)
+
+| Route | Type | Size | First Load JS |
+|---|---|---|---|
+| `/shop` | ƒ Dynamic | 8.84 kB | 163 kB |
+| `/shop/[slug]` | ƒ Dynamic | 3.37 kB | 157 kB |
+| `/sitemap.xml` | ƒ Dynamic | 140 B | 102 kB |
+| Total routes | 22 | — | — |
+| Typecheck | ✅ clean | — | — |
+| Lint | ✅ zero warnings | — | — |
+| Production build | ✅ compiles in 16.7s | — | — |
+
+### Known limitations & technical debt (unblocked by F003)
+- **Backend Category / Collection REST endpoints are absent** — the
+  frontend axes for `?category=` and `?collection=` are wired end-to-end
+  and translate to the correct backend filter, but no positive live test
+  is possible until those endpoints ship. Same story for related-products
+  on the PDP: the adapter+strip renders empty (fail-safe), because no
+  seeded product carries a collection. Backend follow-up ticket needed.
+- **`ProductResponse` lacks `construction` and `care`** — the adapter
+  emits `""` for both; the PDP MetaRow hides on empty. A backend
+  enhancement (or a separate PDP-metadata endpoint) is required.
+- **`src/lib/data/products.ts` is now unreferenced** — grep confirms
+  zero imports anywhere in `src/`. Safe to delete in a separate cleanup
+  commit; left in place for now to keep this diff docs-only.
+- **No frontend test suite yet** — the shop flow is covered by the live
+  E2E gauntlet plus 19/19 backend unit + repository tests; a
+  Vitest/Playwright surface for the client is separate scope.
 
 ---
 

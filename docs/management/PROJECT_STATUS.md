@@ -1,6 +1,6 @@
 # Project Status
 
-**Reporting date:** 2026-07-10
+**Reporting date:** 2026-07-23
 **Reporting owner:** Beejoy Technologies (delivery)
 **Client:** Eazi Cut / Mubarak Abubakar
 
@@ -24,13 +24,14 @@
 | Phase | Scope | Status | Target |
 |---|---|---|---|
 | **1. Marketing Website** | Home, About, Collections, Lookbook, Contact | 🟢 90% — awaiting deployment + real photography | Aug 2026 |
-| **2. Product Catalogue & Commerce** | Categories, PDPs, cart, checkout, Paystack | 🟡 Frontend done · Backend: Product module shipped (B002) — Category/Collection/Order/Auth modules pending | Q4 2026 |
+| **2. Product Catalogue & Commerce** | Categories, PDPs, cart, checkout, Paystack | 🟡 Shop + PDP now live-consuming Product API (F003) · Backend: Product module shipped (B002) — Category/Collection/Order/Auth modules pending · Cart, checkout, Paystack pending | Q4 2026 |
 | **3. Bespoke Tailoring Engine** | Measurements, order lifecycle, atelier ops | ⚪ Not started | Q1 2027 |
 
 ---
 
 ## What shipped this reporting period
 
+- ✅ **Ticket F003 — Frontend Product API Integration (v0.8.0)** — `/shop` and `/shop/[slug]` no longer read mock product data. Six atomic stages: (1) typed API client foundation — `apiGet<T>`, envelope types, error subclasses, `NEXT_PUBLIC_API_URL` config, product adapter mapping every documented contract mismatch; (2) `/shop` rewired as an async server component reading URL as single source of truth, backend pagination, `mapApiProductPage` adapter; (3) price/availability filters, debounced search (300ms local → URL commit), full sort/pagination axes translated to Spring's `field,direction` syntax; (4) empty-state disambiguation ("no-results" vs "empty-catalogue") + 2-row toolbar skeleton; (5) `/shop/[slug]` full server-component rewrite — `fetchProductBySlug` catches `ApiNotFoundError` → branded `not-found.tsx`, related products via collection query, MetaRow hides on empty, dynamic `sitemap.ts` pages backend up to 2000 products with graceful build-time fallback; (6) end-to-end verification against a 26-product seed — every DoD axis proven live (search narrows, price filters arithmetic, sort ordering, pagination disjoint pages, PDP renders JSON-LD Product with sku + newArrival badge, invalid slug returns branded not-found with `noindex`, backend killed returns 200 with layout intact and zero backend text leaked). Typecheck ✅, lint ✅ zero warnings, production build ✅ (16.7s, 22 routes, `/shop` and `/shop/[slug]` correctly ƒ Dynamic). `grep -rn "@/lib/data/products" src/` returns zero matches.
 - ✅ **Ticket B-INFRA-001 — Database Migration Infrastructure** — Flyway is now the schema authority in every profile (dev H2, test H2, prod PostgreSQL). Four stages: (1) `flyway-core` + `flyway-database-postgresql` deps + disabled config block; (2) `V1__initial_schema.sql` baseline derived directly from Hibernate's canonical DDL dump (categories, collections, products with named `uk_product_slug`/`uk_product_sku` + status CHECK constraint, product_images, product_sizes/product_tags with composite PKs) — plus one entity annotation `@JdbcTypeCode(SqlTypes.VARCHAR)` on `Product.status` to force portable VARCHAR enum storage across H2 and PostgreSQL; (3) enabled Flyway + flipped `hibernate.ddl-auto` from `create-drop` to `validate` in dev + patched `@DataJpaTest` to force validate in the slice; (4) documentation. Live-verified end-to-end: boot log shows *"Migrating schema PUBLIC to version 1 - initial schema"*, Hibernate validate succeeds, POST/GET /products round-trip works against the migrated schema. 19/19 tests still pass. Any future entity change now requires a matching Vn migration or the app fails-fast on startup.
 - ✅ **Ticket B002 — Product Module (backend)** — full production-ready Product feature on top of the Spring Boot foundation (B001). Six atomic stages: (1) entities + auditing base + Category/Collection minimal entities + soft-delete via `@SQLDelete`/`@SQLRestriction`; (2) repositories + `PagedResponse` envelope + validated DTOs + `ProductFilterCriteria`; (3) service layer + MapStruct mapper + `ConflictException` base + duplicate-slug/sku exceptions with 409 mapping; (4) `/api/v1/products` REST CRUD (GET list / by id / by slug, POST/PUT/DELETE) + method-level `@PreAuthorize("hasRole('ADMIN')")` + dev admin seed + integrity/auth/type-mismatch exception handlers; (5) `ProductSpecifications` composable filters + convenience endpoints `/featured`, `/new-arrivals`, `/bestsellers`; (6) `@BatchSize(25)` N+1 mitigation + `@DataJpaTest` repository slice (8 tests) + Mockito service unit tests (9 tests) + updated `backend/README.md` with endpoint recipes. 19/19 tests pass, live-verified via 14+ curl scenarios across every filter axis.
 - ✅ **Ticket B001 — Backend Foundation** — Spring Boot 3.4 on Java 21 baseline, Maven wrapper, dev+prod profiles, CORS, security scaffold, uniform `ApiResponse`/`ApiError` envelopes, `GlobalExceptionHandler`, actuator + friendly `/health`, `NUMERIC(19,4)` money, env-var config throughout.
@@ -86,15 +87,15 @@
 | Lighthouse score (est.) | Not yet measured | pending deployment |
 | Typecheck status | ✅ clean (`tsc --noEmit`) | — |
 | Lint status | ✅ zero warnings (`next lint`) | — |
-| Production build | ✅ 19/19 static routes prerendered | ↑ from 13 |
+| Production build | ✅ 22 routes (`/shop`, `/shop/[slug]`, `/sitemap.xml` now ƒ Dynamic per F003) | ↑ from 19 |
 | Home HTML size | 3.24 kB | ✅ excellent |
 | Home first-load JS | 157 kB | ✅ excellent |
 | Collections index HTML | 514 B | ✅ excellent |
 | Collection detail HTML (×6) | 514 B each | ✅ excellent |
 | Favicon / apple-icon / manifest | ✅ all present | — |
 | Branded 404 + error boundary | ✅ present | — |
-| Customer shopping experience progress | 33% (Ticket 002 of 6 shipped) | ↑ from 0% |
-| v1.0 launch progress | **~92%** | ↑ from 90% |
+| Customer shopping experience progress | 50% (Shop + PDP now live against backend; cart, checkout, Paystack pending) | ↑ from 33% |
+| v1.0 launch progress | **~94%** | ↑ from 92% |
 
 ---
 
