@@ -56,4 +56,14 @@ public interface ProductRepository
     boolean existsBySlug(String slug);
 
     boolean existsBySku(String sku);
+
+    // ---------------------------------------------------------------------
+    // Reference-integrity probes (used by Category / Collection services
+    // to raise a domain-level "in use" exception before delete, instead
+    // of relying on a generic DataIntegrityViolationException).
+    // ---------------------------------------------------------------------
+
+    long countByCategoryId(UUID categoryId);
+
+    long countByCollectionId(UUID collectionId);
 }
