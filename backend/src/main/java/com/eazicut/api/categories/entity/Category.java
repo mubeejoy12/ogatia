@@ -8,6 +8,8 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 
 import org.hibernate.annotations.BatchSize;
@@ -55,8 +57,28 @@ public class Category extends AbstractAuditableEntity {
     @Column(nullable = false, length = 120)
     private String name;
 
+    /**
+     * Lower-cased projection of {@link #name}, maintained by the
+     * {@link #syncNameLower()} lifecycle callback below.
+     *
+     * <p>Backs the {@code ux_category_name_lower} unique index (V2
+     * migration) which enforces case-insensitive name uniqueness at the
+     * database layer. See the V2 migration file for why this is a plain
+     * column populated in Java rather than a functional index or a
+     * DB-generated column (H2 v2 and PostgreSQL disagree on the syntax
+     * for both alternatives).
+     */
+    @Column(name = "name_lower", nullable = false, length = 120)
+    private String nameLower;
+
     @Column(nullable = false, unique = true, length = 140)
     private String slug;
+
+    @PrePersist
+    @PreUpdate
+    private void syncNameLower() {
+        this.nameLower = name == null ? null : name.toLowerCase();
+    }
 
     @Column(columnDefinition = "TEXT")
     private String description;
