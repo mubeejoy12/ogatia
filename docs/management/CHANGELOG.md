@@ -9,12 +9,91 @@ Dates use ISO 8601. Unreleased sits at the top; each release moves it below.
 ## [Unreleased]
 
 ### Planned
-- Deploy v0.8.0 to Vercel production (frontend) alongside a hosted backend instance
+- Deploy v0.9.0 to Vercel production alongside a hosted backend instance
 - Wire `services/contact.ts` to Resend (real inbox); read `?collection=` query on Contact form to pre-fill enquiry
 - Replace top 3 placeholder images with commissioned photography
 - NDPR consent banner + `/privacy` + `/terms` pages
 - Plausible analytics
-- Backend Category / Collection / Order / Auth modules
+- Backend Order module + real Auth (JWT)
+
+---
+
+## [0.9.0] — 2026-07-25 — Ticket B003 · Category & Collection reference-data
+
+Full production-ready reference-data system on the backend. Both taxonomies
+have REST CRUD, case-insensitive name uniqueness with a DB-level backstop,
+domain-level in-use guards on delete, and a dev-only idempotent seeder
+that ensures the six categories and six collections the frontend expects
+are present on every dev boot. The frontend's `?category=` and
+`?collection=` filter axes — wired end-to-end in F003 but previously
+un-testable — are now live-verified positive.
+
+### Added — backend
+- **Category REST** — `/api/v1/categories` (GET list, GET /{id}, GET /slug/{slug} public; POST/PUT/DELETE admin). `CategoryRequest` / `CategoryResponse` records, `CategoryMapper` (MapStruct with IGNORE-null on update), `CategoryService` (create/read/update/delete/list). Reads `@Transactional(readOnly=true)`. Default list sort `name ASC`. Slug + name uniqueness probed on the service layer; DB-level unique constraint on `LOWER(name)` via V2 migration.
+- **Collection REST** — `/api/v1/collections` — direct parallel of Category. V3 migration for `collections.name_lower` + unique index.
+- **Case-insensitive name uniqueness (two layers)** —
+  - Service: `existsByNameIgnoreCase` probe + name normalisation (trim + collapse internal whitespace) before every save. Duplicate → 409 with a helpful message ("A category with the name 'Suits' already exists.").
+  - DB: `name_lower` column populated by `@PrePersist`/`@PreUpdate` on the entity; unique index on that column. Portable across H2 v2 and PostgreSQL (functional indexes and DB-generated columns disagree in syntax between the two — a plain column was the only clean shared path).
+- **In-use guards on delete** — `CategoryInUseException` / `CollectionInUseException` (both 409). Raised *before* the DB delete, with the exact product count in the message ("Cannot delete collection 'lagos-heritage': 1 product still references it."). Never relies on a generic `DataIntegrityViolationException`.
+- **Reference-data seeder** — `com.eazicut.api.reference.ReferenceDataSeeder`, `@Component @Profile("dev")` implementing `ApplicationRunner`. Idempotent (per-row `existsBySlug` probe). Seeds:
+  - 6 categories: `suits`, `shirts`, `trousers`, `outerwear`, `native`, `accessories` — slugs match `CATEGORY_SLUG` in `src/features/shop/backendFilter.ts` (`name.toLowerCase()`).
+  - 6 collections: `the-onyx-bespoke`, `ivory-wedding`, `lagos-heritage`, `the-essentials`, `the-noir-tuxedo`, `diaspora` — verbatim from `src/lib/data/collections.ts`.
+  - Never seeds prod or test (profile-guarded). Mutable reference data stays out of Flyway.
+- **`ProductRepository`** — `countByCategoryId(UUID)` and `countByCollectionId(UUID)` — feeding the in-use guards on both services.
+
+### Added — frontend
+- **`src/types/api/category.ts`, `src/types/api/collection.ts`** — mirror the backend `CategoryResponse` and `CollectionResponse` records verbatim.
+- **`src/lib/api/categories.ts`, `src/lib/api/collections.ts`** — typed fetchers (`fetchCategories`, `fetchCategoryBySlug`, `fetchCollections`, `fetchCollectionBySlug`) using the existing `apiGet` client + envelope conventions.
+
+### Changed — frontend (hardening, no redesign)
+- **`src/features/shop/backendFilter.ts`** — removed three dead re-exports (`KNOWN_COLLECTION_SLUGS`, `KNOWN_COLLECTION_NAMES`, `KNOWN_SORT_MODES` had zero external callers) and the mock `import { collections } from "@/lib/data/collections"` that was only feeding one of them. Shop flow now has one less line of coupling to the mock.
+- **`src/features/shop/filters.ts`** — `parseFilters` now emits `console.warn` when the URL contains an unknown category or collection value. Behaviour unchanged (unknown values still fall to `null`, safe empty-state renders), but merchandiser typos and stale-link drift are now visible in dev consoles instead of silently absorbed.
+
+### Backend tests
+- **CategoryServiceTest** — 12 Mockito unit tests (happy paths, duplicate slug/name, whitespace normalisation, update no-op skip, update slug/name change probe, delete blocked-by-products, delete happy, delete unknown, getBySlug unknown, normaliseName helper).
+- **CategoryRepositoryTest** — 5 `@DataJpaTest` slice tests (findBySlug, existsBySlug, existsByNameIgnoreCase across cases, V2 unique index on `name_lower`, V1 slug uniqueness).
+- **CollectionServiceTest** — 12 unit tests (direct parallel).
+- **CollectionRepositoryTest** — 5 slice tests (direct parallel; V3 unique index).
+- **ReferenceDataSeederTest** — 3 behavioural tests with hand-written fake repositories (first-run seeds all 12; second-run no-op; partial pre-existing state seeds only missing rows without overwriting descriptions).
+
+### Verified end-to-end (14/14)
+Live gauntlet against a fresh backend on H2 with the seeded taxonomy and
+6 products assigned to real categories + collections:
+
+| # | Check | Result |
+|---|---|---|
+| 1  | GET /api/v1/categories anonymous | 200 |
+| 2  | GET /api/v1/collections anonymous | 200 |
+| 3  | Seeded categories count | 6 |
+| 4  | Seeded collections count | 6 |
+| 5  | `?category=Suits` narrows | 4 products |
+| 6  | `?category=Shirts` narrows | 1 |
+| 7  | `?category=Outerwear` narrows | 1 |
+| 8  | `?collection=the-onyx-bespoke` narrows | 3 |
+| 9  | `?collection=ivory-wedding` narrows | 1 |
+| 10 | `?collection=diaspora` narrows | 2 |
+| 11 | Combined `?category=Suits&collection=the-onyx-bespoke` | 2 (correctly excludes Ink Overcoat which is Outerwear) |
+| 12 | Related products on `/shop/onyx-two-piece` PDP | 2 distinct related pieces from same collection |
+| 13 | Unknown `?category=Nonexistent` | dropped safely, all 6 shown, `console.warn` logged |
+| 14 | Unknown `?collection=nope-slug` | dropped safely, all 6 shown, `console.warn` logged |
+
+### Known limitations & tech debt
+- **Frontend taxonomy is still static.** The `productCategories` const and `collectionSlugs` const are the frontend's source of truth for URL validation. If the atelier adds a new category via the admin API, the frontend won't render it in the toolbar or accept it in the URL until the const is updated in code. Dynamically fetching the taxonomy on Shop load is deferred — the `console.warn` gives visibility for now.
+- **Category/Collection admin UI is CLI-only.** All writes go via the `/api/v1/{categories,collections}` REST endpoints with HTTP Basic (`admin/admin` in dev). A proper admin surface arrives with the auth ticket.
+- **Concurrent dev-boot race in the seeder** is documented in the class Javadoc — the DB unique constraints on `slug` and `name_lower` are the backstop; the loser's INSERT rolls back cleanly.
+
+### Build metrics (v0.9.0)
+
+| Route | Type | Size | First Load JS |
+|---|---|---|---|
+| `/shop` | ƒ Dynamic | 8.95 kB | 163 kB |
+| `/shop/[slug]` | ƒ Dynamic | 3.36 kB | 158 kB |
+| `/sitemap.xml` | ƒ Dynamic | 140 B | 103 kB |
+| Total routes | 22 | — | — |
+| Backend tests | 56/56 PASS (was 19 at F003 close; +37) | — | — |
+| Typecheck | ✅ clean | — | — |
+| Lint | ✅ zero warnings | — | — |
+| Production build | ✅ compiles | — | — |
 
 ---
 
