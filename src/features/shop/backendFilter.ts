@@ -1,9 +1,7 @@
 import type { ApiProductFilter, ApiProductSort } from "@/types/api/product";
 import type { FilterState, SortMode } from "./filters";
-import { parseFilters, sortModes, type ReadonlyURLSearchParams } from "./filters";
-import { collections } from "@/lib/data/collections";
+import { parseFilters, type ReadonlyURLSearchParams } from "./filters";
 import { productCategories } from "@/types/product";
-import { collectionSlugs } from "@/lib/assets";
 
 /**
  * Server-side page size for /shop. Keep in sync with the backend's
@@ -114,9 +112,3 @@ export function toApiSort(mode: SortMode): ApiProductSort | undefined {
 const CATEGORY_SLUG = new Map<string, string>(
   productCategories.map((name) => [name, name.toLowerCase().replace(/\s+/g, "-")])
 );
-
-// Re-export so consumers building storefront links can validate slugs.
-export const KNOWN_COLLECTION_SLUGS: readonly string[] = collectionSlugs;
-export const KNOWN_SORT_MODES: readonly SortMode[] = sortModes;
-// Placeholder use — silences the unused-import lint in this pure module.
-export const KNOWN_COLLECTION_NAMES = collections.map((c) => c.name);
