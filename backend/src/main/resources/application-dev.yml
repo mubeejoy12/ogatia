@@ -28,17 +28,21 @@ spring:
       enabled: true
       path: /h2-console
 
-  # Dev-only Basic auth user so @PreAuthorize("hasRole('ADMIN')") endpoints
-  # can be tested locally. In prod these properties are not set, so writes
-  # return 403 until the JWT auth ticket wires real users.
-  security:
-    user:
-      name: admin
-      password: admin
-      roles: ADMIN
-
 eazicut:
   allowed-origins: http://localhost:3000
+  # Dev-only admin bootstrap (B004). The in-memory spring.security.user
+  # store used pre-B004 was retired — every environment now authenticates
+  # against the real users table via JpaUserDetailsService, using the
+  # PasswordEncoder bean in SecurityConfig.
+  #
+  # DevAdminSeeder ensures this account exists on every dev boot. Override
+  # either value by exporting EAZICUT_DEV_ADMIN_EMAIL /
+  # EAZICUT_DEV_ADMIN_PASSWORD before `mvnw spring-boot:run` if you want a
+  # local instance with different credentials without editing this file.
+  # Prod ignores this block entirely — the seeder is @Profile("dev").
+  dev-admin:
+    email: ${EAZICUT_DEV_ADMIN_EMAIL:admin@eazicut.local}
+    password: ${EAZICUT_DEV_ADMIN_PASSWORD:admin}
 
 logging:
   level:
