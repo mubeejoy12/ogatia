@@ -58,18 +58,31 @@ export function parseFilters(
   const q = (params.get("q") ?? "").trim();
 
   const rawCategory = params.get("category");
-  const category = (productCategories as readonly string[]).includes(
+  const categoryKnown = (productCategories as readonly string[]).includes(
     rawCategory ?? ""
-  )
-    ? (rawCategory as ProductCategory)
-    : null;
+  );
+  const category = categoryKnown ? (rawCategory as ProductCategory) : null;
+  if (rawCategory && !categoryKnown) {
+    // Visibility: an unknown taxonomy value in the URL is silently dropped
+    // (safe — the empty state renders correctly). Log so a merchandiser
+    // typo or a stale link is noticed rather than shrugged off.
+    console.warn(
+      `[shop/filters] unknown category "${rawCategory}" in URL — dropped. ` +
+        `Known: ${productCategories.join(", ")}.`
+    );
+  }
 
   const rawCollection = params.get("collection");
-  const collection = (collectionSlugs as readonly string[]).includes(
+  const collectionKnown = (collectionSlugs as readonly string[]).includes(
     rawCollection ?? ""
-  )
-    ? (rawCollection as CollectionSlug)
-    : null;
+  );
+  const collection = collectionKnown ? (rawCollection as CollectionSlug) : null;
+  if (rawCollection && !collectionKnown) {
+    console.warn(
+      `[shop/filters] unknown collection "${rawCollection}" in URL — dropped. ` +
+        `Known: ${collectionSlugs.join(", ")}.`
+    );
+  }
 
   const rawSort = params.get("sort");
   const sort = (sortModes as readonly string[]).includes(rawSort ?? "")
