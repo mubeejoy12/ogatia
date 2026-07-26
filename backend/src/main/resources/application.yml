@@ -65,6 +65,19 @@ server:
 # Application-level namespaces used by our own beans (see CorsConfig).
 eazicut:
   allowed-origins: ${ALLOWED_ORIGINS:http://localhost:3000}
+  # JWT signing configuration. `secret` MUST be ≥ 32 bytes for HS256 —
+  # JJWT fail-fasts on boot with a shorter key. Overridden per profile:
+  # dev supplies a dev-only default; prod requires EAZICUT_JWT_SECRET
+  # to be set (no fallback — the pod won't boot without it). Access
+  # tokens live 15 minutes; refresh flow (Stage 5) mints new ones
+  # without a password re-prompt.
+  jwt:
+    # `secret` intentionally has no default here — dev supplies one
+    # in application-dev.yml and prod requires EAZICUT_JWT_SECRET to
+    # be set in the environment (application-prod.yml resolves it
+    # eagerly; the pod won't boot without it).
+    issuer: ${EAZICUT_JWT_ISSUER:eazicut-api}
+    access-token-ttl: ${EAZICUT_JWT_ACCESS_TOKEN_TTL:15m}
 
 management:
   endpoints:
