@@ -43,6 +43,12 @@ eazicut:
   dev-admin:
     email: ${EAZICUT_DEV_ADMIN_EMAIL:admin@eazicut.local}
     password: ${EAZICUT_DEV_ADMIN_PASSWORD:admin}
+  # Dev-only JWT signing key. Do NOT copy this value to prod — prod
+  # loads EAZICUT_JWT_SECRET from the environment and fails-fast on
+  # boot if it isn't set. This dev default is 48 bytes of ASCII to
+  # keep the local run seamless without any env prep.
+  jwt:
+    secret: ${EAZICUT_JWT_SECRET:dev-only-hs256-secret-do-not-use-in-prod-please}
 
 logging:
   level:
