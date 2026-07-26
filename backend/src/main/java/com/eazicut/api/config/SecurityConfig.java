@@ -1,7 +1,9 @@
 package com.eazicut.api.config;
 
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -11,50 +13,53 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+
+import com.eazicut.api.auth.jwt.JwtAuthenticationFilter;
+import com.eazicut.api.auth.jwt.JwtProperties;
 
 /**
  * Security configuration for the API.
  *
- * <p><strong>Where B004 is right now.</strong> Stage 1 replaces the
- * Spring Boot in-memory user store with a DB-backed
- * {@code JpaUserDetailsService} and adds a proper {@link PasswordEncoder}
- * bean. HTTP Basic is still the wire mechanism until Stage 3 introduces
- * JWT; {@code .anyRequest().permitAll()} still stands until Stage 3
- * flips the default to {@code authenticated} with an explicit public
- * allowlist.
+ * <p><strong>Stage 3 posture.</strong>
+ * <ul>
+ *   <li>{@link JwtAuthenticationFilter} runs before Spring's
+ *       {@link UsernamePasswordAuthenticationFilter}. If a valid
+ *       {@code Authorization: Bearer <jwt>} is present the request is
+ *       already authenticated by the time the authorization rules run.</li>
+ *   <li>{@code .anyRequest().authenticated()} — the default is now
+ *       <em>secure</em>. Any newly-added endpoint is protected until it
+ *       is either annotated with {@code @PreAuthorize} + explicitly
+ *       allowlisted here (public) or reached with a valid credential.
+ *       This is the single change that eliminates the pre-B004
+ *       silent-drift risk.</li>
+ *   <li>Explicit public allowlist below covers exactly the endpoints
+ *       the audit designated public — nothing more.</li>
+ *   <li>HTTP Basic is <strong>kept transitionally</strong> in this stage
+ *       so the DB-backed admin user seeded in Stage 1 remains usable via
+ *       {@code curl -u} while Stage 4 finishes {@code /auth/login}.
+ *       Stage 4 removes it.</li>
+ *   <li>Session policy stays {@code STATELESS}; CSRF stays disabled.
+ *       See the class-level doc on the previous B004 stage — bearer JWT
+ *       + no ambient session + {@code SameSite=Lax} refresh cookie
+ *       (Stage 5) mean CSRF is inapplicable.</li>
+ * </ul>
  *
- * <p>Session policy stays {@code STATELESS} — the target architecture is
- * JWT with a refresh cookie; nothing here needs to persist a session.
- *
- * <p>CSRF stays disabled. The API is stateless, will move to bearer JWT
- * (no ambient credentials), and the refresh-token cookie (Stage 5) will
- * be {@code SameSite=Lax}. Documented here so the reason survives the
- * next reader — do NOT re-enable CSRF without also introducing a
- * cookie-carried session for state-changing requests.
+ * <p>The {@code EndpointAuthorizationIT} integration test walks every
+ * mapped controller endpoint and asserts the expected auth level, so
+ * the allowlist below can't silently drift out of sync with the app.
  */
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
+@EnableConfigurationProperties(JwtProperties.class)
 public class SecurityConfig {
 
-    /**
-     * BCrypt with the library default cost (10 rounds ~ 100 ms on a
-     * dev laptop). Centralising the encoder here means Stage 2's
-     * registration flow and any future re-hash migration go through
-     * one place — bump the cost, rehash-on-login, or swap to Argon2
-     * with a single edit.
-     */
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
     }
 
-    /**
-     * Expose the framework-built {@link AuthenticationManager} so the
-     * later {@code AuthService.login()} (Stage 4) can drive the same
-     * authentication pipeline Spring uses for HTTP Basic, without
-     * hand-rolling password comparison.
-     */
     @Bean
     public AuthenticationManager authenticationManager(
             AuthenticationConfiguration config) throws Exception {
@@ -62,18 +67,32 @@ public class SecurityConfig {
     }
 
     @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain filterChain(
+            HttpSecurity http,
+            JwtAuthenticationFilter jwtFilter
+    ) throws Exception {
         http
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                // HTTP Basic remains the wire credential in Stage 1 so the
-                // admin curls that B002/B003 rely on keep working. Stage 3
-                // replaces this with the OAuth2 resource-server JWT filter
-                // and flips the default rule to `authenticated`.
-                .httpBasic(basic -> {})
                 .authorizeHttpRequests(auth -> auth
-                        .anyRequest().permitAll()
-                );
+                        // --- Public: system probes ---
+                        .requestMatchers("/health", "/actuator/health", "/actuator/info").permitAll()
+                        // --- Public: read-only catalogue ---
+                        .requestMatchers(HttpMethod.GET, "/products/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/categories/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/collections/**").permitAll()
+                        // --- Public: auth entry points (Stages 2, 4, 5) ---
+                        .requestMatchers(HttpMethod.POST, "/auth/register").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/auth/login").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/auth/refresh").permitAll()
+                        // --- Everything else requires an authenticated principal ---
+                        .anyRequest().authenticated()
+                )
+                // HTTP Basic remains as a transitional credential source in
+                // Stage 3. Stage 4 removes it when /auth/login exists to
+                // mint a proper JWT.
+                .httpBasic(basic -> {})
+                .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
 }
