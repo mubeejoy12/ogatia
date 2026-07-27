@@ -26,6 +26,10 @@ spring:
 
 eazicut:
   allowed-origins: ${ALLOWED_ORIGINS}       # e.g. https://eazicut.com
+  jwt:
+    # Required — no default. If unset, Spring's ${} resolver throws
+    # and the pod fails to start, which is the safe outcome.
+    secret: ${EAZICUT_JWT_SECRET}
 
 logging:
   level:
