@@ -7,7 +7,9 @@ import jakarta.validation.Valid;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.CookieValue;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -37,9 +39,9 @@ import lombok.RequiredArgsConstructor;
  *       Rotates the refresh token and mints a fresh access token.</li>
  *   <li>{@code POST /auth/logout}   — public. Revokes the refresh
  *       token and clears the cookie. Idempotent.</li>
+ *   <li>{@code GET  /auth/me}       — authenticated. Returns the
+ *       {@link UserResponse} projection for the caller.</li>
  * </ul>
- *
- * <p>{@code /auth/me} lands in Stage 6.
  */
 @RestController
 @RequestMapping("/auth")
@@ -107,4 +109,17 @@ public class AuthController {
         return builder.build();
     }
 
+    /**
+     * Return the current authenticated user.
+     *
+     * <p>Requires a valid Bearer access token. The
+     * {@code JwtAuthenticationFilter} populates the SecurityContext's
+     * principal with the email from the token's {@code email} claim;
+     * we surface it here via {@link AuthenticationPrincipal} and hand
+     * it to the service, which re-hydrates the row.
+     */
+    @GetMapping("/me")
+    public ApiResponse<UserResponse> me(@AuthenticationPrincipal String email) {
+        return ApiResponse.of(authService.me(email));
+    }
 }
