@@ -1,6 +1,5 @@
 package com.eazicut.api.config;
 
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -15,11 +14,13 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.eazicut.api.auth.jwt.JwtService;
 import com.eazicut.api.users.entity.Role;
 import com.eazicut.api.users.entity.User;
 import com.eazicut.api.users.repository.UserRepository;
@@ -28,22 +29,10 @@ import com.eazicut.api.users.repository.UserRepository;
  * D8 safety net — walks every mapped controller endpoint and asserts the
  * expected authorization level.
  *
- * <p>This test is the reason we can flip {@code .anyRequest().permitAll()}
- * to {@code .anyRequest().authenticated()} without holding our breath.
- * A new endpoint that's accidentally left public — or worse, forgotten
- * behind {@code authenticated} when it should be public — will fail here
- * before it can ship.
- *
- * <p><strong>Matrix:</strong>
- * <ul>
- *   <li>Public endpoints: anonymous → 2xx / 4xx (not 401).</li>
- *   <li>Admin-only endpoints: anonymous → 401; CUSTOMER → 403; ADMIN → 2xx / 4xx.</li>
- * </ul>
- *
- * <p>HTTP Basic (still enabled transitionally in Stage 3) is used as the
- * credential source. When Stage 4 removes Basic, this test will be
- * updated to mint a real JWT via {@code AuthService.login()} and hit the
- * same matrix with a Bearer header.
+ * <p>Post-Stage-4 the wire credential is Bearer JWT only (HTTP Basic
+ * has been removed from the filter chain). This test mints tokens
+ * directly via {@link JwtService} for the seeded users and attaches
+ * them via {@code Authorization} headers.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -59,19 +48,27 @@ class EndpointAuthorizationTest {
     @Autowired MockMvc mockMvc;
     @Autowired UserRepository userRepository;
     @Autowired PasswordEncoder passwordEncoder;
+    @Autowired JwtService jwtService;
 
     private static final String CUSTOMER_EMAIL = "e2e-customer@test.local";
     private static final String CUSTOMER_PASSWORD = "correct horse battery";
 
+    private User customer;
+
     @BeforeEach
     void seedCustomer() {
-        if (userRepository.existsByEmailLower(CUSTOMER_EMAIL)) return;
-        User u = new User();
-        u.setEmail(CUSTOMER_EMAIL);
-        u.setPasswordHash(passwordEncoder.encode(CUSTOMER_PASSWORD));
-        u.setRole(Role.CUSTOMER);
-        u.setEnabled(true);
-        userRepository.save(u);
+        customer = userRepository.findByEmailLower(CUSTOMER_EMAIL).orElseGet(() -> {
+            User u = new User();
+            u.setEmail(CUSTOMER_EMAIL);
+            u.setPasswordHash(passwordEncoder.encode(CUSTOMER_PASSWORD));
+            u.setRole(Role.CUSTOMER);
+            u.setEnabled(true);
+            return userRepository.save(u);
+        });
+    }
+
+    private String bearer(User user) {
+        return "Bearer " + jwtService.issueAccessToken(user);
     }
 
     // ------------------------------------------------------------------
@@ -104,6 +101,12 @@ class EndpointAuthorizationTest {
                 .andExpect(status().isBadRequest());
     }
 
+    @Test @DisplayName("public — POST /auth/login anonymous → 400 (validation), not 401 (proves it's on the allowlist)")
+    void authLoginPublic() throws Exception {
+        mockMvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isBadRequest());
+    }
+
     // ------------------------------------------------------------------
     // Admin-only writes — three angles per endpoint family
     // ------------------------------------------------------------------
@@ -114,16 +117,14 @@ class EndpointAuthorizationTest {
                 .andExpect(status().isUnauthorized());
     }
 
-    @Test @DisplayName("protected — POST /products CUSTOMER → 403")
+    @Test @DisplayName("protected — POST /products CUSTOMER (Bearer) → 403")
     void productsCreateCustomer() throws Exception {
-        // Body must pass @Valid so we reach @PreAuthorize; otherwise Spring
-        // returns 400 during argument resolution before the auth check.
         String validProduct = """
                 {"name":"Test Piece","slug":"test-piece-auth-check","shortDescription":"short",
                  "fullDescription":"full","sku":"TST-AUTH-1","price":1000,"stockQuantity":1,
                  "images":[{"url":"https://example.com/x.jpg","alt":"x","sortOrder":0,"primary":true}]}""";
         mockMvc.perform(post("/products")
-                        .with(httpBasic(CUSTOMER_EMAIL, CUSTOMER_PASSWORD))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(customer))
                         .contentType(MediaType.APPLICATION_JSON).content(validProduct))
                 .andExpect(status().isForbidden());
     }
@@ -134,10 +135,10 @@ class EndpointAuthorizationTest {
                 .andExpect(status().isUnauthorized());
     }
 
-    @Test @DisplayName("protected — POST /categories CUSTOMER → 403")
+    @Test @DisplayName("protected — POST /categories CUSTOMER (Bearer) → 403")
     void categoriesCreateCustomer() throws Exception {
         mockMvc.perform(post("/categories")
-                        .with(httpBasic(CUSTOMER_EMAIL, CUSTOMER_PASSWORD))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(customer))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Test Cat\",\"slug\":\"test-cat\"}"))
                 .andExpect(status().isForbidden());
@@ -149,10 +150,10 @@ class EndpointAuthorizationTest {
                 .andExpect(status().isUnauthorized());
     }
 
-    @Test @DisplayName("protected — POST /collections CUSTOMER → 403")
+    @Test @DisplayName("protected — POST /collections CUSTOMER (Bearer) → 403")
     void collectionsCreateCustomer() throws Exception {
         mockMvc.perform(post("/collections")
-                        .with(httpBasic(CUSTOMER_EMAIL, CUSTOMER_PASSWORD))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(customer))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Test Col\",\"slug\":\"test-col\"}"))
                 .andExpect(status().isForbidden());
@@ -169,6 +170,15 @@ class EndpointAuthorizationTest {
         }
     }
 
+    @Test @DisplayName("protected — malformed Bearer → 401 (not 500)")
+    void malformedBearerRejected() throws Exception {
+        mockMvc.perform(post("/categories")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer not.a.real.jwt")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"X\",\"slug\":\"x\"}"))
+                .andExpect(status().isUnauthorized());
+    }
+
     // ------------------------------------------------------------------
     // Unknown routes still 401 when they require a body/write intent
     // (proves the default is authenticated, not permitAll)
@@ -176,9 +186,6 @@ class EndpointAuthorizationTest {
 
     @Test @DisplayName("secure default — unmapped write route anonymous → 401 (not 404 through auth's back door)")
     void unmappedWriteAnonymous() throws Exception {
-        // Any unmapped route under the API prefix should authenticate first;
-        // an anonymous request cannot even reach the 404 handler for a
-        // protected path.
         mockMvc.perform(post("/nonexistent-endpoint-xyz")
                         .contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(status().isUnauthorized());

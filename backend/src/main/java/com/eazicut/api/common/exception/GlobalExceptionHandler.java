@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.mapping.PropertyReferenceException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -18,6 +19,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.NoHandlerFoundException;
 
+import com.eazicut.api.auth.exception.InvalidCredentialsException;
+import com.eazicut.api.auth.exception.TooManyLoginAttemptsException;
 import com.eazicut.api.common.dto.ApiError;
 import com.eazicut.api.common.dto.ApiError.FieldViolation;
 
@@ -184,6 +187,48 @@ public class GlobalExceptionHandler {
                 "You do not have permission to perform this action.",
                 request
         );
+    }
+
+    /**
+     * Invalid login credentials. Mapped to 401 with the generic
+     * "invalid_credentials" error slug — no enumeration signal in the
+     * body regardless of whether the email was unknown, the password
+     * wrong, or the account disabled.
+     */
+    @ExceptionHandler(InvalidCredentialsException.class)
+    public ResponseEntity<ApiError> handleInvalidCredentials(
+            InvalidCredentialsException ex,
+            HttpServletRequest request
+    ) {
+        return build(
+                HttpStatus.UNAUTHORIZED,
+                "invalid_credentials",
+                ex.getMessage(),
+                request
+        );
+    }
+
+    /**
+     * Login rate-limit exceeded (per-IP or per-email). Returns 429 with
+     * a {@code Retry-After} header carrying the seconds until the caller
+     * may retry — respected by browsers and by our frontend's fetch
+     * wrapper.
+     */
+    @ExceptionHandler(TooManyLoginAttemptsException.class)
+    public ResponseEntity<ApiError> handleRateLimit(
+            TooManyLoginAttemptsException ex,
+            HttpServletRequest request
+    ) {
+        ApiError body = ApiError.of(
+                HttpStatus.TOO_MANY_REQUESTS.value(),
+                "too_many_attempts",
+                ex.getMessage(),
+                request.getRequestURI()
+        );
+        long retryAfterSeconds = Math.max(1, ex.retryAfter().toSeconds());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(retryAfterSeconds))
+                .body(body);
     }
 
     /**
