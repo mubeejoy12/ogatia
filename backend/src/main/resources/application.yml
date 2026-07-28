@@ -78,6 +78,7 @@ eazicut:
     # eagerly; the pod won't boot without it).
     issuer: ${EAZICUT_JWT_ISSUER:eazicut-api}
     access-token-ttl: ${EAZICUT_JWT_ACCESS_TOKEN_TTL:15m}
+    refresh-token-ttl: ${EAZICUT_JWT_REFRESH_TOKEN_TTL:7d}
 
 management:
   endpoints:
