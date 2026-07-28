@@ -4,6 +4,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.UUID;
@@ -176,6 +177,34 @@ class EndpointAuthorizationTest {
                         .header(HttpHeaders.AUTHORIZATION, "Bearer not.a.real.jwt")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"X\",\"slug\":\"x\"}"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    // ------------------------------------------------------------------
+    // /auth/me — the first authenticated-only endpoint (Stage 6)
+    // ------------------------------------------------------------------
+
+    @Test @DisplayName("auth — GET /auth/me anonymous → 401")
+    void meAnonymous() throws Exception {
+        mockMvc.perform(get("/auth/me")).andExpect(status().isUnauthorized());
+    }
+
+    @Test @DisplayName("auth — GET /auth/me with a valid Bearer returns the caller's profile")
+    void meAuthenticated() throws Exception {
+        mockMvc.perform(get("/auth/me")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(customer)))
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString(CUSTOMER_EMAIL)))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("\"role\":\"CUSTOMER\"")))
+                // Never leaks the password hash or the email_lower detail
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("passwordHash"))))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("emailLower"))));
+    }
+
+    @Test @DisplayName("auth — GET /auth/me with an invalid Bearer → 401")
+    void meBadBearer() throws Exception {
+        mockMvc.perform(get("/auth/me")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer not.a.real.jwt"))
                 .andExpect(status().isUnauthorized());
     }
 
