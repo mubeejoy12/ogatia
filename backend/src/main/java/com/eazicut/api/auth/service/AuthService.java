@@ -181,6 +181,38 @@ public class AuthService {
     }
 
     // ---------------------------------------------------------------------
+    // Me (Stage 6)
+    // ---------------------------------------------------------------------
+
+    /**
+     * Look up the authenticated user by email (from the JWT principal)
+     * and return the {@link UserResponse} projection.
+     *
+     * <p>The JWT filter sets the authenticated principal to the email
+     * from the token's {@code email} claim without touching the DB, so
+     * {@code /auth/me} is the first place we re-hydrate the row. That
+     * lets us surface the current display name / role without needing
+     * to bake them into the token (which would invalidate all
+     * outstanding tokens on any profile edit).
+     *
+     * @throws InvalidCredentialsException if the email in the token no
+     *         longer resolves to a user (deleted mid-session) or the
+     *         user has been disabled. Same 401 shape the login path
+     *         emits — the client should clear its session and prompt
+     *         a fresh login.
+     */
+    @Transactional(readOnly = true)
+    public UserResponse me(String email) {
+        if (email == null || email.isBlank()) {
+            throw new InvalidCredentialsException();
+        }
+        User user = userRepository.findByEmailLower(email.trim().toLowerCase())
+                .filter(User::isEnabled)
+                .orElseThrow(InvalidCredentialsException::new);
+        return userMapper.toResponse(user);
+    }
+
+    // ---------------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------------
 
