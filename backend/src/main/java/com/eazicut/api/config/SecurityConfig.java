@@ -13,7 +13,9 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.http.HttpStatus;
 
 import com.eazicut.api.auth.jwt.JwtAuthenticationFilter;
 import com.eazicut.api.auth.jwt.JwtProperties;
@@ -35,10 +37,10 @@ import com.eazicut.api.auth.jwt.JwtProperties;
  *       silent-drift risk.</li>
  *   <li>Explicit public allowlist below covers exactly the endpoints
  *       the audit designated public — nothing more.</li>
- *   <li>HTTP Basic is <strong>kept transitionally</strong> in this stage
- *       so the DB-backed admin user seeded in Stage 1 remains usable via
- *       {@code curl -u} while Stage 4 finishes {@code /auth/login}.
- *       Stage 4 removes it.</li>
+ *   <li>HTTP Basic was retired in Stage 4 now that {@code /auth/login}
+ *       exists to mint a proper JWT. Bearer via
+ *       {@link JwtAuthenticationFilter} is the sole wire credential
+ *       mechanism.</li>
  *   <li>Session policy stays {@code STATELESS}; CSRF stays disabled.
  *       See the class-level doc on the previous B004 stage — bearer JWT
  *       + no ambient session + {@code SameSite=Lax} refresh cookie
@@ -85,13 +87,21 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/auth/register").permitAll()
                         .requestMatchers(HttpMethod.POST, "/auth/login").permitAll()
                         .requestMatchers(HttpMethod.POST, "/auth/refresh").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/auth/logout").permitAll()
                         // --- Everything else requires an authenticated principal ---
                         .anyRequest().authenticated()
                 )
-                // HTTP Basic remains as a transitional credential source in
-                // Stage 3. Stage 4 removes it when /auth/login exists to
-                // mint a proper JWT.
-                .httpBasic(basic -> {})
+                // HTTP Basic was removed in Stage 4 now that /auth/login
+                // exists to mint a proper JWT. Bearer via JwtAuthenticationFilter
+                // is the only wire credential mechanism.
+                //
+                // Without HTTP Basic's own AuthenticationEntryPoint, Spring's
+                // default would answer missing-credential requests with 403.
+                // For a bearer-only API 401 is the semantically correct answer
+                // ("authenticate please"); 403 is reserved for "authenticated
+                // but not authorised".
+                .exceptionHandling(ex -> ex.authenticationEntryPoint(
+                        new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
