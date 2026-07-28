@@ -2,16 +2,22 @@ package com.eazicut.api.auth.controller;
 
 import java.net.URI;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.CookieValue;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
+import com.eazicut.api.auth.dto.LoginRequest;
+import com.eazicut.api.auth.dto.LoginResponse;
 import com.eazicut.api.auth.dto.RegisterRequest;
+import com.eazicut.api.auth.refresh.RefreshCookies;
 import com.eazicut.api.auth.service.AuthService;
 import com.eazicut.api.common.dto.ApiResponse;
 import com.eazicut.api.users.dto.UserResponse;
@@ -19,29 +25,21 @@ import com.eazicut.api.users.dto.UserResponse;
 import lombok.RequiredArgsConstructor;
 
 /**
- * REST controller for authentication (Stage 2 — registration only).
+ * REST controller for authentication.
  *
- * <p>Base path {@code /api/v1/auth}. Login, refresh, logout, and /me
- * arrive in Stages 4–6. The endpoints all live under one controller so
- * the auth surface stays visible in one place.
+ * <p>Base path {@code /api/v1/auth}. Endpoints as of Stage 5:
  *
- * <p><strong>Access.</strong> {@code /auth/register} is public — every
- * new customer starts unauthenticated. When Stage 3 flips the filter
- * chain from {@code permitAll} to {@code authenticated}, this path must
- * be on the public allowlist alongside {@code /auth/login} and
- * {@code /auth/refresh}.
+ * <ul>
+ *   <li>{@code POST /auth/register} — public. Creates a CUSTOMER.</li>
+ *   <li>{@code POST /auth/login}    — public. Verifies credentials,
+ *       returns JWT access token + user, sets refresh cookie.</li>
+ *   <li>{@code POST /auth/refresh}  — public (reads refresh cookie).
+ *       Rotates the refresh token and mints a fresh access token.</li>
+ *   <li>{@code POST /auth/logout}   — public. Revokes the refresh
+ *       token and clears the cookie. Idempotent.</li>
+ * </ul>
  *
- * <p><strong>Response shape.</strong> 201 Created with a {@code Location}
- * header pointing at the {@code /auth/me} URL the created user will use
- * once /me exists (Stage 6). Body carries the {@code UserResponse} in
- * the standard {@link ApiResponse} envelope.
- *
- * <p><strong>Validation.</strong> {@code @Valid} on the body means
- * missing fields, bad email shape, an out-of-range password, or a
- * blocklisted password all surface as HTTP 400 with the uniform
- * {@code validation_failed} shape from {@code GlobalExceptionHandler}.
- * Duplicate-email surfaces as HTTP 409 via
- * {@code DuplicateEmailException}.
+ * <p>{@code /auth/me} lands in Stage 6.
  */
 @RestController
 @RequestMapping("/auth")
@@ -61,4 +59,52 @@ public class AuthController {
                 .toUri();
         return ResponseEntity.created(meLocation).body(ApiResponse.of(created));
     }
+
+    /**
+     * Verify email + password, mint an access token, set the refresh
+     * cookie. The refresh token itself never appears in the JSON body
+     * ({@link LoginResponse#refreshToken} is {@code @JsonIgnore}) —
+     * only the cookie carries it.
+     */
+    @PostMapping("/login")
+    public ResponseEntity<ApiResponse<LoginResponse>> login(
+            @Valid @RequestBody LoginRequest request,
+            HttpServletRequest servletRequest
+    ) {
+        LoginResponse body = authService.login(request, servletRequest.getRemoteAddr());
+        var builder = ResponseEntity.ok();
+        RefreshCookies.attachSet(builder, body.refreshToken(), authService.refreshTokenTtl());
+        return builder.body(ApiResponse.of(body));
+    }
+
+    /**
+     * Rotate the refresh token from the cookie. Returns the same
+     * {@link LoginResponse} shape as {@link #login} so the frontend
+     * has one code path.
+     */
+    @PostMapping("/refresh")
+    public ResponseEntity<ApiResponse<LoginResponse>> refresh(
+            @CookieValue(name = RefreshCookies.COOKIE_NAME, required = false) String refreshCookie
+    ) {
+        LoginResponse body = authService.refresh(refreshCookie);
+        var builder = ResponseEntity.ok();
+        RefreshCookies.attachSet(builder, body.refreshToken(), authService.refreshTokenTtl());
+        return builder.body(ApiResponse.of(body));
+    }
+
+    /**
+     * Revoke the refresh token (if present) and clear the cookie.
+     * Always returns 204, whether or not there was a live session —
+     * idempotent by design.
+     */
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(
+            @CookieValue(name = RefreshCookies.COOKIE_NAME, required = false) String refreshCookie
+    ) {
+        authService.logout(refreshCookie);
+        var builder = ResponseEntity.status(HttpStatus.NO_CONTENT);
+        RefreshCookies.attachClear(builder);
+        return builder.build();
+    }
+
 }
