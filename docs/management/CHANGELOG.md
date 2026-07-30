@@ -9,12 +9,199 @@ Dates use ISO 8601. Unreleased sits at the top; each release moves it below.
 ## [Unreleased]
 
 ### Planned
-- Deploy v0.9.0 to Vercel production alongside a hosted backend instance
+- Deploy v0.10.0 to Vercel production alongside a hosted backend instance
 - Wire `services/contact.ts` to Resend (real inbox); read `?collection=` query on Contact form to pre-fill enquiry
 - Replace top 3 placeholder images with commissioned photography
 - NDPR consent banner + `/privacy` + `/terms` pages
 - Plausible analytics
-- Backend Order module + real Auth (JWT)
+- Backend Order module
+- Auth hardening pass: email verification, password reset, refresh-token reuse detection, Redis-backed rate limiter for horizontal scale
+- Navbar sign-in / sign-out affordance
+
+---
+
+## [0.10.0] — 2026-07-30 — Ticket B004 · Authentication & Authorization
+
+Production-ready auth. Retires the B001 scaffold (`spring.security.user.*`
+in-memory user + `permitAll` filter chain + HTTP Basic on the wire) and
+replaces it with DB-backed users, BCrypt password hashing, JWT bearer
+tokens (15-min access) + rotating refresh tokens (7-day, HttpOnly
+cookie), per-IP + per-email login rate limiting, and a secure-by-default
+`.anyRequest().authenticated()` filter chain with an explicit public
+allowlist. Frontend gets login / register / account pages, an
+in-memory access-token `AuthContext`, and a middleware gate for
+`/account`.
+
+Eight atomic stages, one commit each:
+
+### Added — backend
+- **`V4__users.sql`** — users table with `email` + `email_lower`
+  (case-insensitive unique via `ux_user_email_lower` — same portable
+  pattern V2/V3 established), BCrypt-sized `password_hash`, VARCHAR
+  `role` with `idx_user_role`, `enabled` flag, standard audit columns.
+- **`V5__refresh_tokens.sql`** — refresh tokens with FK to users
+  (ON DELETE CASCADE), UNIQUE(token_hash), `issued_at`/`expires_at`/
+  `revoked_at`. Only the SHA-256 hash of the raw token is stored.
+- **`users` package** — `User` entity (`@PrePersist` sync of
+  `email_lower`), `Role` enum (`CUSTOMER` / `ADMIN` with `authority()`
+  helper returning `ROLE_*`), `UserRepository`, `UserResponse` DTO
+  that deliberately omits `passwordHash`/`emailLower`/`enabled`,
+  `UserMapper` (one-way `toResponse` only).
+- **`users/security`** — `UserDetailsAdapter` (record adapting the
+  entity to Spring's contract), `JpaUserDetailsService` (DB-backed,
+  normalises input, `@Transactional(readOnly=true)`).
+- **`auth/validation`** — `@ValidPassword` custom Bean-Validation
+  annotation + `PasswordValidator` (8–128 length, no forced
+  complexity, ~18-entry blocklist including `password`, `qwerty`,
+  `eazicut`).
+- **`auth` package** — `RegisterRequest`, `LoginRequest`,
+  `LoginResponse` (carries `accessToken` + `expiresInSeconds` +
+  `user`; `refreshToken` field marked `@JsonIgnore` — never leaves in
+  JSON). `DuplicateEmailException`, `InvalidCredentialsException`,
+  `TooManyLoginAttemptsException`. `AuthService` with
+  `register/login/refresh/logout/me` — email normalisation,
+  constant-time BCrypt call even on unknown email (closes timing
+  side-channel), two-layer uniqueness (service probe + DB backstop),
+  rate limiter integration.
+- **`auth/jwt`** — `JwtProperties` (`@ConfigurationProperties`),
+  `JwtService` (HS256 issue + parse; claims `sub`, `email`, `role`,
+  `iss`, `iat`, `exp`), `JwtAuthenticationFilter`
+  (`OncePerRequestFilter`; Bearer → `SecurityContext` with no DB
+  hit). JJWT 0.12.6.
+- **`auth/refresh`** — `RefreshToken` entity (lazy `@ManyToOne` User),
+  `RefreshTokenRepository`, `RefreshTokenService` (issue: 256-bit
+  base64url random; rotate: revoke old + mint new atomically inside
+  one `@Transactional`; revoke: idempotent). `RefreshCookies` — one
+  central place for the cookie shape: `eazicut_refresh` (HttpOnly,
+  Secure, SameSite=Lax, `Path=/api/v1/auth`) + companion
+  `eazicut_session=1` presence marker (non-HttpOnly, `Path=/`) so
+  the frontend middleware has something it can read.
+- **`auth/ratelimit`** — `LoginRateLimiter` interface +
+  `InMemoryLoginRateLimiter` (5 failures / 15 min rolling window,
+  per-IP AND per-email; success resets email counter only).
+- **`auth/controller/AuthController`** — `POST /auth/register`,
+  `/login`, `/refresh`, `/logout` (all public, on the allowlist);
+  `GET /auth/me` (authenticated).
+- **`users/bootstrap/DevAdminSeeder`** — `@Profile("dev")`
+  `ApplicationRunner`. Reads `eazicut.dev-admin.{email,password}`
+  (bindable to `EAZICUT_DEV_ADMIN_EMAIL` / `EAZICUT_DEV_ADMIN_PASSWORD`;
+  defaults `admin@eazicut.local` / `admin`). Idempotent.
+
+### Changed — backend
+- **`SecurityConfig`** — added `PasswordEncoder` (BCrypt) +
+  `AuthenticationManager` beans. **Flipped the filter chain default
+  from `.anyRequest().permitAll()` to `.anyRequest().authenticated()`**
+  with an explicit public allowlist: `/health`, `/actuator/health`,
+  `/actuator/info`, `GET /products/**`, `GET /categories/**`,
+  `GET /collections/**`, `POST /auth/{register,login,refresh,logout}`.
+  Registered `JwtAuthenticationFilter` before
+  `UsernamePasswordAuthenticationFilter`. **Removed `httpBasic`.**
+  Set `HttpStatusEntryPoint(UNAUTHORIZED)` so missing-credential
+  requests return 401 rather than the framework's default 403.
+  CSRF stays disabled — bearer JWT + SameSite=Lax refresh cookie +
+  no ambient session make CSRF inapplicable; documented at length.
+- **`GlobalExceptionHandler`** — added handlers for
+  `InvalidCredentialsException` (401, `invalid_credentials`) and
+  `TooManyLoginAttemptsException` (429 + `Retry-After` header).
+- **`ProductRepository`** — no changes required.
+- **`application-dev.yml`** — retired the `spring.security.user.*`
+  block; added `eazicut.dev-admin.*` and dev-only JWT secret default.
+- **`application.yml`** — added `eazicut.jwt.{issuer,
+  access-token-ttl, refresh-token-ttl}` with env-var overrides.
+- **`application-prod.yml`** — added `eazicut.jwt.secret:
+  ${EAZICUT_JWT_SECRET}` with no default — pod fails to boot if the
+  env var isn't set (safe outcome).
+- **`pom.xml`** — `io.jsonwebtoken:jjwt-{api,impl,jackson}` at 0.12.6.
+
+### Added — frontend
+- **`src/types/api/auth.ts`** — mirrors the backend DTOs (`Role`,
+  `ApiUserResponse`, `ApiRegisterRequest`, `ApiLoginRequest`,
+  `ApiLoginResponse`).
+- **`src/lib/api/auth.ts`** — typed `register/login/refresh/logout/me`
+  using its own POST helper with `credentials: "include"` so the
+  HttpOnly refresh cookie flows. Deliberately separate from the
+  generic `apiGet` so unrelated `/products` calls stay cookie-free.
+- **`src/features/auth/AuthContext.tsx`** — `AuthProvider` + `useAuth`
+  + `useAccessToken`. Access token lives in a React ref
+  (never localStorage → XSS-safe). Mount-time silent refresh so a
+  page reload doesn't force a re-login.
+- **`src/app/(auth)/login/page.tsx`** — luxury "Sign in to the
+  Atelier". `useSearchParams` in a `Suspense` boundary (required for
+  static prerender). `?next=` validated as same-origin-absolute
+  (prevents open-redirect abuse).
+- **`src/app/(auth)/register/page.tsx`** — luxury "Open an account".
+  Minimal per D3 (email + password + optional display name).
+  Auto-signs-in on success. Maps 409 → "already exists", 429 →
+  rate-limit copy.
+- **`src/app/account/page.tsx`** — luxury stub. Client-guarded:
+  bounces to `/login?next=/account` if `AuthContext` settles to
+  `anonymous`. Shows email + role + sign-out button.
+- **`src/middleware.ts`** — reads `eazicut_session` presence cookie;
+  unauth → 302 `/login?next=<original>`. Matcher scoped to
+  `/account/:path*` only.
+
+### Changed — frontend
+- **`src/app/layout.tsx`** — wraps `CartProvider` in `AuthProvider`.
+
+### Tests
+- **Backend 129 total** (was 19 before B004; +110 new):
+  `UserRepositoryTest` (4), `JpaUserDetailsServiceTest` (3),
+  `PasswordValidatorTest` (8), `AuthServiceTest` (15 — register + login
+  + refresh + logout + me + normalisation + constant-time), `JwtServiceTest`
+  (6), `EndpointAuthorizationTest` (18 — every mapped endpoint × auth
+  level), `RefreshTokenServiceTest` (10 slice), `FullAuthFlowTest` (1
+  end-to-end MockMvc loop: register → login → me → refresh → replay-old
+  → me-with-new → logout → dead → idempotent), `InMemoryLoginRateLimiterTest`
+  (8).
+
+### Verified end-to-end (33/33)
+Live gauntlet against a fresh backend on H2 (ordered so rate-limit
+saturation runs last):
+
+| # | Check | Result |
+|---|---|---|
+| U1×9 | All 9 write endpoints anonymous → 401 (POST/PUT/DELETE on products, categories, collections) | ✅ |
+| U2 | Pre-B004 `admin:admin` creds → 401 | ✅ (in-memory store gone) |
+| U3 | HTTP Basic itself → 401 | ✅ (mechanism removed) |
+| U4 | POST /auth/register → 201 | ✅ |
+| U5 | POST /auth/login → 200 | ✅ |
+| U6 | Short password → 400 · blocklisted password → 400 | ✅ |
+| U7 | 6th failed login attempt → 429 + Retry-After header | ✅ |
+| U8 | Wrong password → 401 (BCrypt verified) | ✅ |
+| Loop | admin login → Bearer /categories 201 → /me 200 → /refresh rotates → old cookie 401 → new Bearer works → logout 204 → post-logout 401 | ✅ |
+| Roles | CUSTOMER Bearer → admin write → 403 (not 401 — authenticated but not authorised) | ✅ |
+| /me | valid Bearer → 200; invalid Bearer → 401 | ✅ |
+| Public | GET /products, /categories, /collections, /health anonymous → 200 | ✅ |
+| Dup | duplicate registration → 409 | ✅ |
+
+### Known limitations & deferred hardening
+- **Email verification** — deferred per D3. A registration succeeds
+  immediately with no inbox check.
+- **Password reset** — deferred. Only path today is: contact atelier.
+- **MFA** — deferred.
+- **Refresh-token reuse detection** — today, replaying a rotated
+  cookie returns 401 but doesn't revoke the whole "family"; a
+  follow-up ticket can wire that once telemetry is in place.
+- **Rate limiter is in-memory single-instance** — the
+  `LoginRateLimiter` interface is Redis-ready; horizontal scale
+  needs a shared-store implementation.
+- **Frontend has no bearer-attaching wrapper on the generic `apiGet`
+  with silent-refresh-on-401** — no non-auth caller today needs it
+  (product/category/collection reads are public). Add when the first
+  bearer-requiring `/api/v1/…` call outside `/auth/*` lands.
+- **Navbar sign-in/sign-out affordance** — deferred to polish. The
+  `/login`, `/register`, `/account` pages are directly navigable.
+
+### Build metrics (v0.10.0)
+
+| | Value |
+|---|---|
+| Backend tests | 129/129 PASS (was 19 before B004; +110 new) |
+| Frontend routes | 26 (added `/login`, `/register`, `/account`, `Middleware`) |
+| Frontend typecheck | ✅ clean |
+| Frontend lint | ✅ zero warnings |
+| Frontend production build | ✅ compiles |
+| Flyway migrations | V1–V5 |
 
 ---
 
