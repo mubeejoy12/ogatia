@@ -21,6 +21,7 @@ import org.springframework.web.servlet.NoHandlerFoundException;
 
 import com.eazicut.api.auth.exception.InvalidCredentialsException;
 import com.eazicut.api.auth.exception.TooManyLoginAttemptsException;
+import com.eazicut.api.cart.exception.CartTooLargeException;
 import com.eazicut.api.common.dto.ApiError;
 import com.eazicut.api.common.dto.ApiError.FieldViolation;
 
@@ -229,6 +230,23 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
                 .header(HttpHeaders.RETRY_AFTER, String.valueOf(retryAfterSeconds))
                 .body(body);
+    }
+
+    /**
+     * Cart line-count cap exceeded. 413 Payload Too Large — the cart
+     * itself is the resource that's too large, not any individual field.
+     */
+    @ExceptionHandler(CartTooLargeException.class)
+    public ResponseEntity<ApiError> handleCartTooLarge(
+            CartTooLargeException ex,
+            HttpServletRequest request
+    ) {
+        return build(
+                HttpStatus.PAYLOAD_TOO_LARGE,
+                "cart_too_large",
+                ex.getMessage(),
+                request
+        );
     }
 
     /**
