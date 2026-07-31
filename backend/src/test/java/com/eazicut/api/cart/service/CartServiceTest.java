@@ -24,6 +24,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.eazicut.api.cart.dto.AddCartItemRequest;
 import com.eazicut.api.cart.dto.CartResponse;
+import com.eazicut.api.cart.dto.MergeCartRequest;
+import com.eazicut.api.cart.dto.MergeCartRequest.GuestLine;
 import com.eazicut.api.cart.dto.UpdateCartItemRequest;
 import com.eazicut.api.cart.entity.Cart;
 import com.eazicut.api.cart.entity.CartItem;
@@ -446,6 +448,186 @@ class CartServiceTest {
 
         assertThat(resp.items()).isEmpty();
         assertThat(resp.subtotal()).isEqualByComparingTo(BigDecimal.ZERO);
+    }
+
+    // ---------------------------------------------------------------------
+    // Merge (Stage 4)
+    // ---------------------------------------------------------------------
+
+    @Test
+    @DisplayName("merge — empty payload is a no-op; existing cart untouched")
+    void mergeEmpty() {
+        Cart cart = emptyCart();
+        given(cartRepository.findByUserId(user.getId())).willReturn(Optional.of(cart));
+        given(cartRepository.saveAndFlush(any(Cart.class))).willAnswer(inv -> inv.getArgument(0));
+
+        CartResponse resp = service.merge(user, new MergeCartRequest(List.of()));
+
+        assertThat(resp.items()).isEmpty();
+        assertThat(resp.issues()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("merge — happy path inserts a fresh line with snapshot")
+    void mergeFreshLine() {
+        Cart cart = emptyCart();
+        Product product = product("test-piece", "Test Piece", new BigDecimal("100000"), ProductStatus.ACTIVE, 10);
+        given(cartRepository.findByUserId(user.getId())).willReturn(Optional.of(cart));
+        given(productRepository.findBySlug("test-piece")).willReturn(Optional.of(product));
+        given(cartItemRepository.findByCartIdAndProductIdAndSize(cart.getId(), product.getId(), "L"))
+                .willReturn(Optional.empty());
+        given(cartRepository.saveAndFlush(any(Cart.class))).willAnswer(inv -> inv.getArgument(0));
+
+        CartResponse resp = service.merge(user, new MergeCartRequest(List.of(
+                new GuestLine("test-piece", "L", 2)
+        )));
+
+        assertThat(resp.items()).hasSize(1);
+        assertThat(resp.items().get(0).quantity()).isEqualTo(2);
+        assertThat(resp.issues()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("merge — existing line is summed with incoming and capped at 20")
+    void mergeSumsAndCaps() {
+        Cart cart = emptyCart();
+        Product product = product("test-piece", "Test Piece", new BigDecimal("100000"), ProductStatus.ACTIVE, 100);
+        CartItem existing = item(cart, product, "L", 15, product.getPrice());
+        cart.getItems().add(existing);
+
+        given(cartRepository.findByUserId(user.getId())).willReturn(Optional.of(cart));
+        given(productRepository.findBySlug("test-piece")).willReturn(Optional.of(product));
+        given(cartItemRepository.findByCartIdAndProductIdAndSize(cart.getId(), product.getId(), "L"))
+                .willReturn(Optional.of(existing));
+        given(cartRepository.saveAndFlush(any(Cart.class))).willAnswer(inv -> inv.getArgument(0));
+
+        CartResponse resp = service.merge(user, new MergeCartRequest(List.of(
+                new GuestLine("test-piece", "L", 10)
+        )));
+
+        assertThat(resp.items().get(0).quantity()).isEqualTo(20);
+        assertThat(resp.issues())
+                .extracting(i -> i.code())
+                .contains("quantity_capped");
+    }
+
+    @Test
+    @DisplayName("merge — unknown slug is skipped with product_removed issue (payload doesn't fail)")
+    void mergeUnknownSlug() {
+        Cart cart = emptyCart();
+        given(cartRepository.findByUserId(user.getId())).willReturn(Optional.of(cart));
+        given(productRepository.findBySlug("ghost")).willReturn(Optional.empty());
+        given(cartRepository.saveAndFlush(any(Cart.class))).willAnswer(inv -> inv.getArgument(0));
+
+        CartResponse resp = service.merge(user, new MergeCartRequest(List.of(
+                new GuestLine("ghost", "L", 1)
+        )));
+
+        assertThat(resp.items()).isEmpty();
+        assertThat(resp.issues()).hasSize(1);
+        assertThat(resp.issues().get(0).code()).isEqualTo("product_removed");
+        assertThat(resp.issues().get(0).itemId()).isNull(); // cart-level toast
+    }
+
+    @Test
+    @DisplayName("merge — non-ACTIVE product is skipped with product_removed issue")
+    void mergeInactiveProduct() {
+        Cart cart = emptyCart();
+        Product retired = product("test-piece", "Test Piece", new BigDecimal("100000"), ProductStatus.ARCHIVED, 5);
+        given(cartRepository.findByUserId(user.getId())).willReturn(Optional.of(cart));
+        given(productRepository.findBySlug("test-piece")).willReturn(Optional.of(retired));
+        given(cartRepository.saveAndFlush(any(Cart.class))).willAnswer(inv -> inv.getArgument(0));
+
+        CartResponse resp = service.merge(user, new MergeCartRequest(List.of(
+                new GuestLine("test-piece", "L", 1)
+        )));
+
+        assertThat(resp.items()).isEmpty();
+        assertThat(resp.issues())
+                .extracting(i -> i.code()).containsExactly("product_removed");
+    }
+
+    @Test
+    @DisplayName("merge — retired size is skipped with size_unavailable issue")
+    void mergeSizeUnavailable() {
+        Cart cart = emptyCart();
+        Product product = product("test-piece", "Test Piece", new BigDecimal("100000"), ProductStatus.ACTIVE, 10);
+        product.setAvailableSizes(Set.of("L")); // no XL any more
+        given(cartRepository.findByUserId(user.getId())).willReturn(Optional.of(cart));
+        given(productRepository.findBySlug("test-piece")).willReturn(Optional.of(product));
+        given(cartRepository.saveAndFlush(any(Cart.class))).willAnswer(inv -> inv.getArgument(0));
+
+        CartResponse resp = service.merge(user, new MergeCartRequest(List.of(
+                new GuestLine("test-piece", "XL", 1)
+        )));
+
+        assertThat(resp.items()).isEmpty();
+        assertThat(resp.issues())
+                .extracting(i -> i.code()).containsExactly("size_unavailable");
+    }
+
+    @Test
+    @DisplayName("merge — cart already at cap; extra new lines dropped with cart_too_large (one issue for the whole overflow)")
+    void mergeCartTooLarge() {
+        Cart cart = emptyCart();
+        for (int i = 0; i < 50; i++) {
+            Product p = product("p-" + i, "P " + i, new BigDecimal("100"), ProductStatus.ACTIVE, 10);
+            cart.getItems().add(item(cart, p, "L", 1, p.getPrice()));
+        }
+        Product overflow = product("overflow", "Overflow", new BigDecimal("100"), ProductStatus.ACTIVE, 10);
+
+        given(cartRepository.findByUserId(user.getId())).willReturn(Optional.of(cart));
+        given(productRepository.findBySlug("overflow")).willReturn(Optional.of(overflow));
+        given(cartItemRepository.findByCartIdAndProductIdAndSize(any(), any(), any()))
+                .willReturn(Optional.empty());
+        given(cartRepository.saveAndFlush(any(Cart.class))).willAnswer(inv -> inv.getArgument(0));
+
+        // Use only sizes that the default fixture actually offers ({L,XL})
+        // so the cap check is what drops them — not size validation.
+        // Three distinct (product, size) tuples via slug variance.
+        Product overflow2 = product("overflow2", "Overflow 2", new BigDecimal("100"), ProductStatus.ACTIVE, 10);
+        Product overflow3 = product("overflow3", "Overflow 3", new BigDecimal("100"), ProductStatus.ACTIVE, 10);
+        given(productRepository.findBySlug("overflow2")).willReturn(Optional.of(overflow2));
+        given(productRepository.findBySlug("overflow3")).willReturn(Optional.of(overflow3));
+
+        CartResponse resp = service.merge(user, new MergeCartRequest(List.of(
+                new GuestLine("overflow", "L", 1),
+                new GuestLine("overflow2", "L", 1),
+                new GuestLine("overflow3", "L", 1)
+        )));
+
+        // 50 pre-existing lines are unchanged; all 3 incoming were dropped;
+        // a SINGLE cart_too_large issue accompanies (with count = 3).
+        assertThat(resp.items()).hasSize(50);
+        long tooLarge = resp.issues().stream().filter(i -> "cart_too_large".equals(i.code())).count();
+        assertThat(tooLarge).isEqualTo(1);
+        assertThat(resp.issues().stream()
+                .filter(i -> "cart_too_large".equals(i.code()))
+                .findFirst().orElseThrow().message()).contains("3 lines");
+    }
+
+    @Test
+    @DisplayName("merge — mixed good and bad payload: good lines land, bad ones become issues")
+    void mergeMixed() {
+        Cart cart = emptyCart();
+        Product good = product("good", "Good Piece", new BigDecimal("100"), ProductStatus.ACTIVE, 5);
+
+        given(cartRepository.findByUserId(user.getId())).willReturn(Optional.of(cart));
+        given(productRepository.findBySlug("good")).willReturn(Optional.of(good));
+        given(productRepository.findBySlug("ghost")).willReturn(Optional.empty());
+        given(cartItemRepository.findByCartIdAndProductIdAndSize(any(), any(), any()))
+                .willReturn(Optional.empty());
+        given(cartRepository.saveAndFlush(any(Cart.class))).willAnswer(inv -> inv.getArgument(0));
+
+        CartResponse resp = service.merge(user, new MergeCartRequest(List.of(
+                new GuestLine("good", "L", 2),
+                new GuestLine("ghost", "L", 1)
+        )));
+
+        assertThat(resp.items()).hasSize(1);
+        assertThat(resp.items().get(0).quantity()).isEqualTo(2);
+        assertThat(resp.issues())
+                .extracting(i -> i.code()).containsExactly("product_removed");
     }
 
     // ---------------------------------------------------------------------
