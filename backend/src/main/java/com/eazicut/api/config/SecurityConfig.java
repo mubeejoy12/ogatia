@@ -12,6 +12,7 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
@@ -74,9 +75,21 @@ public class SecurityConfig {
             JwtAuthenticationFilter jwtFilter
     ) throws Exception {
         http
+                // CORS enabled via the ambient CorsConfigurationSource bean
+                // (see CorsConfig). Doing it here means CORS headers are
+                // applied at exactly the right place in the servlet chain
+                // — before the authorization decision — so both preflight
+                // AND authenticated cross-origin responses carry the right
+                // headers for the browser.
+                .cors(Customizer.withDefaults())
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        // --- CORS preflight requests carry no credentials by
+                        // design; the CorsFilter answers them. Without this
+                        // allowlist entry, Security's default rejects them
+                        // 401 before the CorsFilter can respond.
+                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         // --- Public: system probes ---
                         .requestMatchers("/health", "/actuator/health", "/actuator/info").permitAll()
                         // --- Public: read-only catalogue ---
