@@ -7,8 +7,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
-import org.springframework.web.filter.CorsFilter;
 
 /**
  * Cross-origin configuration for the Next.js frontend.
@@ -19,6 +19,14 @@ import org.springframework.web.filter.CorsFilter;
  *
  * <p>Explicitly disallows wildcard origins in production — every deploy
  * must name the frontend host it trusts.
+ *
+ * <p>Publishes a {@link CorsConfigurationSource} bean rather than a
+ * standalone {@code CorsFilter}. Spring Security consumes this bean
+ * when {@code .cors(Customizer.withDefaults())} is enabled on the
+ * filter chain (see {@code SecurityConfig}); that way CORS headers
+ * are added at exactly the right place in the servlet pipeline
+ * (before the authorization decision) so both preflight AND
+ * authenticated cross-origin responses get the right headers.
  */
 @Configuration
 public class CorsConfig {
@@ -27,7 +35,7 @@ public class CorsConfig {
     private String allowedOriginsCsv;
 
     @Bean
-    public CorsFilter corsFilter() {
+    public CorsConfigurationSource corsConfigurationSource() {
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         CorsConfiguration config = new CorsConfiguration();
 
@@ -44,6 +52,6 @@ public class CorsConfig {
         config.setMaxAge(3600L);
 
         source.registerCorsConfiguration("/**", config);
-        return new CorsFilter(source);
+        return source;
     }
 }
