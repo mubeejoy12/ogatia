@@ -46,6 +46,7 @@ export function ProductActions({ product }: { product: Product }) {
     setError(null);
     cart.add(
       {
+        productId: product.id,  // required when the cart is server-backed
         slug: product.slug,
         name: product.name,
         price: product.price,
