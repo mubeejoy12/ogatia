@@ -2,7 +2,6 @@ package com.eazicut.api.cart.service;
 
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 
@@ -10,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.eazicut.api.cart.dto.AddCartItemRequest;
+import com.eazicut.api.cart.dto.CartIssueResponse;
 import com.eazicut.api.cart.dto.CartItemResponse;
 import com.eazicut.api.cart.dto.CartResponse;
 import com.eazicut.api.cart.dto.UpdateCartItemRequest;
@@ -77,6 +77,7 @@ public class CartService {
     private final CartItemRepository cartItemRepository;
     private final CartMapper cartMapper;
     private final ProductRepository productRepository;
+    private final CartIssueDetector issueDetector;
 
     // ---------------------------------------------------------------------
     // Reads
@@ -132,13 +133,15 @@ public class CartService {
 
         int itemCount = cart.getItems().stream().mapToInt(item -> item.getQuantity()).sum();
 
+        List<CartIssueResponse> issues = issueDetector.detect(cart);
+
         return new CartResponse(
                 cart.getId(),
                 cart.getCurrency(),
                 items,
                 subtotal,
                 itemCount,
-                Collections.emptyList(),   // populated in Stage 3
+                issues,
                 cart.getUpdatedAt()
         );
     }
