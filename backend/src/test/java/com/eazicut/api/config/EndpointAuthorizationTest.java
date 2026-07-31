@@ -209,6 +209,45 @@ class EndpointAuthorizationTest {
     }
 
     // ------------------------------------------------------------------
+    // /cart/** — the first fully-authenticated CRUD surface (B005 Stage 2)
+    // ------------------------------------------------------------------
+
+    @Test @DisplayName("cart — GET /cart anonymous → 401")
+    void cartGetAnonymous() throws Exception {
+        mockMvc.perform(get("/cart")).andExpect(status().isUnauthorized());
+    }
+
+    @Test @DisplayName("cart — POST /cart/items anonymous → 401")
+    void cartAddAnonymous() throws Exception {
+        mockMvc.perform(post("/cart/items").contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test @DisplayName("cart — PATCH /cart/items/{id} anonymous → 401")
+    void cartPatchAnonymous() throws Exception {
+        mockMvc.perform(put("/cart/items/" + UUID.randomUUID()).contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test @DisplayName("cart — DELETE /cart/items/{id} anonymous → 401")
+    void cartDeleteItemAnonymous() throws Exception {
+        mockMvc.perform(delete("/cart/items/" + UUID.randomUUID()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test @DisplayName("cart — DELETE /cart anonymous → 401")
+    void cartClearAnonymous() throws Exception {
+        mockMvc.perform(delete("/cart")).andExpect(status().isUnauthorized());
+    }
+
+    @Test @DisplayName("cart — GET /cart with valid CUSTOMER Bearer → 200 (lazy-creates)")
+    void cartGetAuthenticated() throws Exception {
+        mockMvc.perform(get("/cart")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(customer)))
+                .andExpect(status().isOk());
+    }
+
+    // ------------------------------------------------------------------
     // Unknown routes still 401 when they require a body/write intent
     // (proves the default is authenticated, not permitAll)
     // ------------------------------------------------------------------
