@@ -1,6 +1,7 @@
 package com.eazicut.api.cart.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
@@ -8,6 +9,7 @@ import static org.mockito.Mockito.verify;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -20,14 +22,24 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.eazicut.api.cart.dto.AddCartItemRequest;
 import com.eazicut.api.cart.dto.CartResponse;
+import com.eazicut.api.cart.dto.UpdateCartItemRequest;
 import com.eazicut.api.cart.entity.Cart;
 import com.eazicut.api.cart.entity.CartItem;
+import com.eazicut.api.cart.exception.CartLineNotFoundException;
+import com.eazicut.api.cart.exception.CartTooLargeException;
+import com.eazicut.api.cart.exception.InsufficientStockException;
+import com.eazicut.api.cart.exception.ProductUnavailableException;
+import com.eazicut.api.cart.exception.SizeUnavailableException;
 import com.eazicut.api.cart.mapper.CartMapper;
 import com.eazicut.api.cart.mapper.CartMapperImpl;
+import com.eazicut.api.cart.repository.CartItemRepository;
 import com.eazicut.api.cart.repository.CartRepository;
+import com.eazicut.api.common.exception.ResourceNotFoundException;
 import com.eazicut.api.products.entity.Product;
 import com.eazicut.api.products.entity.ProductStatus;
+import com.eazicut.api.products.repository.ProductRepository;
 import com.eazicut.api.users.entity.Role;
 import com.eazicut.api.users.entity.User;
 
@@ -42,6 +54,8 @@ import com.eazicut.api.users.entity.User;
 class CartServiceTest {
 
     @Mock private CartRepository cartRepository;
+    @Mock private CartItemRepository cartItemRepository;
+    @Mock private ProductRepository productRepository;
 
     private final CartMapper mapper = new CartMapperImpl();
 
@@ -50,7 +64,7 @@ class CartServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new CartService(cartRepository, mapper);
+        service = new CartService(cartRepository, cartItemRepository, mapper, productRepository);
 
         user = new User();
         user.setId(UUID.randomUUID());
@@ -189,6 +203,248 @@ class CartServiceTest {
         assertThat(resp.items().get(1).available()).isFalse();
         assertThat(resp.items().get(2).available()).isFalse();
         assertThat(resp.items().get(3).available()).isFalse();
+    }
+
+    // ---------------------------------------------------------------------
+    // Mutations — add / setQuantity / remove / clear
+    // ---------------------------------------------------------------------
+
+    private Cart emptyCart() {
+        Cart cart = new Cart();
+        cart.setId(UUID.randomUUID());
+        cart.setUser(user);
+        cart.setCurrency("NGN");
+        cart.setUpdatedAt(Instant.now());
+        cart.setItems(new ArrayList<>());
+        return cart;
+    }
+
+    @Test
+    @DisplayName("add — first line inserts with snapshot; subtotal reflects it")
+    void addFirstLine() {
+        Cart cart = emptyCart();
+        Product product = product("test-piece", "Test Piece", new BigDecimal("100000"), ProductStatus.ACTIVE, 10);
+        AddCartItemRequest req = new AddCartItemRequest(product.getId(), "L", 2);
+
+        given(productRepository.findById(product.getId())).willReturn(Optional.of(product));
+        given(cartRepository.findByUserId(user.getId())).willReturn(Optional.of(cart));
+        given(cartItemRepository.findByCartIdAndProductIdAndSize(cart.getId(), product.getId(), "L"))
+                .willReturn(Optional.empty());
+        given(cartRepository.saveAndFlush(any(Cart.class))).willAnswer(inv -> inv.getArgument(0));
+
+        CartResponse resp = service.add(user, req);
+
+        assertThat(resp.items()).hasSize(1);
+        assertThat(resp.items().get(0).quantity()).isEqualTo(2);
+        assertThat(resp.items().get(0).snapshot().name()).isEqualTo("Test Piece");
+        assertThat(resp.subtotal()).isEqualByComparingTo(new BigDecimal("200000"));
+    }
+
+    @Test
+    @DisplayName("add — second call on same (product, size) increments the existing line quantity")
+    void addBumpsExisting() {
+        Cart cart = emptyCart();
+        Product product = product("test-piece", "Test Piece", new BigDecimal("100000"), ProductStatus.ACTIVE, 10);
+        CartItem existing = item(cart, product, "L", 1, product.getPrice());
+        cart.getItems().add(existing);
+
+        AddCartItemRequest req = new AddCartItemRequest(product.getId(), "L", 2);
+
+        given(productRepository.findById(product.getId())).willReturn(Optional.of(product));
+        given(cartRepository.findByUserId(user.getId())).willReturn(Optional.of(cart));
+        given(cartItemRepository.findByCartIdAndProductIdAndSize(cart.getId(), product.getId(), "L"))
+                .willReturn(Optional.of(existing));
+        given(cartRepository.saveAndFlush(any(Cart.class))).willAnswer(inv -> inv.getArgument(0));
+
+        CartResponse resp = service.add(user, req);
+
+        assertThat(resp.items()).hasSize(1);
+        assertThat(resp.items().get(0).quantity()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("add — increment is capped at PER_LINE_QTY_CAP (20)")
+    void addCapsAtLineLimit() {
+        Cart cart = emptyCart();
+        Product product = product("test-piece", "Test Piece", new BigDecimal("100000"), ProductStatus.ACTIVE, 100);
+        CartItem existing = item(cart, product, "L", 18, product.getPrice());
+        cart.getItems().add(existing);
+
+        AddCartItemRequest req = new AddCartItemRequest(product.getId(), "L", 10);
+
+        given(productRepository.findById(product.getId())).willReturn(Optional.of(product));
+        given(cartRepository.findByUserId(user.getId())).willReturn(Optional.of(cart));
+        given(cartItemRepository.findByCartIdAndProductIdAndSize(cart.getId(), product.getId(), "L"))
+                .willReturn(Optional.of(existing));
+        given(cartRepository.saveAndFlush(any(Cart.class))).willAnswer(inv -> inv.getArgument(0));
+
+        CartResponse resp = service.add(user, req);
+
+        assertThat(resp.items().get(0).quantity()).isEqualTo(20);
+    }
+
+    @Test
+    @DisplayName("add — unknown productId → ResourceNotFoundException (404)")
+    void addUnknownProduct() {
+        UUID id = UUID.randomUUID();
+        given(productRepository.findById(id)).willReturn(Optional.empty());
+        AddCartItemRequest req = new AddCartItemRequest(id, "L", 1);
+
+        assertThatThrownBy(() -> service.add(user, req))
+                .isInstanceOf(ResourceNotFoundException.class);
+        verify(cartRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    @DisplayName("add — product not ACTIVE → ProductUnavailableException (409)")
+    void addProductNotActive() {
+        Product product = product("test-piece", "Test Piece", new BigDecimal("100000"), ProductStatus.OUT_OF_STOCK, 5);
+        given(productRepository.findById(product.getId())).willReturn(Optional.of(product));
+        AddCartItemRequest req = new AddCartItemRequest(product.getId(), "L", 1);
+
+        assertThatThrownBy(() -> service.add(user, req))
+                .isInstanceOf(ProductUnavailableException.class);
+    }
+
+    @Test
+    @DisplayName("add — size not offered → SizeUnavailableException (409)")
+    void addSizeNotOffered() {
+        Product product = product("test-piece", "Test Piece", new BigDecimal("100000"), ProductStatus.ACTIVE, 5);
+        given(productRepository.findById(product.getId())).willReturn(Optional.of(product));
+        AddCartItemRequest req = new AddCartItemRequest(product.getId(), "XXL", 1);
+
+        assertThatThrownBy(() -> service.add(user, req))
+                .isInstanceOf(SizeUnavailableException.class);
+    }
+
+    @Test
+    @DisplayName("add — requested qty exceeds stock → InsufficientStockException (409)")
+    void addExceedsStock() {
+        Product product = product("test-piece", "Test Piece", new BigDecimal("100000"), ProductStatus.ACTIVE, 2);
+        AddCartItemRequest req = new AddCartItemRequest(product.getId(), "L", 5);
+
+        given(productRepository.findById(product.getId())).willReturn(Optional.of(product));
+        given(cartRepository.findByUserId(user.getId())).willReturn(Optional.of(emptyCart()));
+        given(cartItemRepository.findByCartIdAndProductIdAndSize(any(), any(), any()))
+                .willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.add(user, req))
+                .isInstanceOf(InsufficientStockException.class)
+                .hasMessageContaining("Only 2");
+    }
+
+    @Test
+    @DisplayName("add — 51st line rejected with CartTooLargeException (413)")
+    void addCartTooLarge() {
+        Cart cart = emptyCart();
+        for (int i = 0; i < 50; i++) {
+            Product p = product("p-" + i, "P " + i, new BigDecimal("100"), ProductStatus.ACTIVE, 10);
+            cart.getItems().add(item(cart, p, "L", 1, p.getPrice()));
+        }
+        Product product = product("new-piece", "New Piece", new BigDecimal("100"), ProductStatus.ACTIVE, 10);
+        AddCartItemRequest req = new AddCartItemRequest(product.getId(), "L", 1);
+
+        given(productRepository.findById(product.getId())).willReturn(Optional.of(product));
+        given(cartRepository.findByUserId(user.getId())).willReturn(Optional.of(cart));
+        given(cartItemRepository.findByCartIdAndProductIdAndSize(any(), any(), any()))
+                .willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.add(user, req))
+                .isInstanceOf(CartTooLargeException.class)
+                .hasMessageContaining("50");
+    }
+
+    @Test
+    @DisplayName("setQuantity — happy path sets the absolute quantity")
+    void setQuantityHappy() {
+        Cart cart = emptyCart();
+        Product product = product("test-piece", "Test Piece", new BigDecimal("100000"), ProductStatus.ACTIVE, 10);
+        CartItem existing = item(cart, product, "L", 1, product.getPrice());
+        cart.getItems().add(existing);
+
+        given(cartRepository.findByUserId(user.getId())).willReturn(Optional.of(cart));
+        given(cartItemRepository.findByIdAndCartId(existing.getId(), cart.getId()))
+                .willReturn(Optional.of(existing));
+        given(cartRepository.saveAndFlush(any(Cart.class))).willAnswer(inv -> inv.getArgument(0));
+
+        CartResponse resp = service.setQuantity(user, existing.getId(), new UpdateCartItemRequest(4));
+
+        assertThat(resp.items().get(0).quantity()).isEqualTo(4);
+    }
+
+    @Test
+    @DisplayName("setQuantity — unknown itemId → CartLineNotFoundException (404)")
+    void setQuantityUnknown() {
+        Cart cart = emptyCart();
+        given(cartRepository.findByUserId(user.getId())).willReturn(Optional.of(cart));
+        given(cartItemRepository.findByIdAndCartId(any(), any())).willReturn(Optional.empty());
+
+        assertThatThrownBy(() ->
+                service.setQuantity(user, UUID.randomUUID(), new UpdateCartItemRequest(2)))
+                .isInstanceOf(CartLineNotFoundException.class);
+    }
+
+    @Test
+    @DisplayName("setQuantity — request qty above stock → InsufficientStockException (409)")
+    void setQuantityAboveStock() {
+        Cart cart = emptyCart();
+        Product product = product("test-piece", "Test Piece", new BigDecimal("100000"), ProductStatus.ACTIVE, 2);
+        CartItem existing = item(cart, product, "L", 1, product.getPrice());
+        cart.getItems().add(existing);
+
+        given(cartRepository.findByUserId(user.getId())).willReturn(Optional.of(cart));
+        given(cartItemRepository.findByIdAndCartId(existing.getId(), cart.getId()))
+                .willReturn(Optional.of(existing));
+
+        assertThatThrownBy(() ->
+                service.setQuantity(user, existing.getId(), new UpdateCartItemRequest(5)))
+                .isInstanceOf(InsufficientStockException.class);
+    }
+
+    @Test
+    @DisplayName("remove — happy path pops the line")
+    void removeHappy() {
+        Cart cart = emptyCart();
+        Product product = product("test-piece", "Test Piece", new BigDecimal("100000"), ProductStatus.ACTIVE, 10);
+        CartItem existing = item(cart, product, "L", 1, product.getPrice());
+        cart.getItems().add(existing);
+
+        given(cartRepository.findByUserId(user.getId())).willReturn(Optional.of(cart));
+        given(cartItemRepository.findByIdAndCartId(existing.getId(), cart.getId()))
+                .willReturn(Optional.of(existing));
+        given(cartRepository.saveAndFlush(any(Cart.class))).willAnswer(inv -> inv.getArgument(0));
+
+        CartResponse resp = service.remove(user, existing.getId());
+
+        assertThat(resp.items()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("remove — unknown itemId → CartLineNotFoundException (404)")
+    void removeUnknown() {
+        Cart cart = emptyCart();
+        given(cartRepository.findByUserId(user.getId())).willReturn(Optional.of(cart));
+        given(cartItemRepository.findByIdAndCartId(any(), any())).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.remove(user, UUID.randomUUID()))
+                .isInstanceOf(CartLineNotFoundException.class);
+    }
+
+    @Test
+    @DisplayName("clear — empties every line")
+    void clear() {
+        Cart cart = emptyCart();
+        Product product = product("test-piece", "Test Piece", new BigDecimal("100000"), ProductStatus.ACTIVE, 10);
+        cart.getItems().add(item(cart, product, "L", 1, product.getPrice()));
+        cart.getItems().add(item(cart, product, "XL", 2, product.getPrice()));
+
+        given(cartRepository.findByUserId(user.getId())).willReturn(Optional.of(cart));
+        given(cartRepository.saveAndFlush(any(Cart.class))).willAnswer(inv -> inv.getArgument(0));
+
+        CartResponse resp = service.clear(user);
+
+        assertThat(resp.items()).isEmpty();
+        assertThat(resp.subtotal()).isEqualByComparingTo(BigDecimal.ZERO);
     }
 
     // ---------------------------------------------------------------------
