@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.eazicut.api.auth.exception.InvalidCredentialsException;
 import com.eazicut.api.cart.dto.AddCartItemRequest;
 import com.eazicut.api.cart.dto.CartResponse;
+import com.eazicut.api.cart.dto.MergeCartRequest;
 import com.eazicut.api.cart.dto.UpdateCartItemRequest;
 import com.eazicut.api.cart.service.CartService;
 import com.eazicut.api.common.dto.ApiResponse;
@@ -91,6 +92,22 @@ public class CartController {
     public ApiResponse<CartResponse> clearCart(@AuthenticationPrincipal String email) {
         User user = resolveUser(email);
         return ApiResponse.of(cartService.clear(user));
+    }
+
+    /**
+     * One-shot merge of a guest (localStorage) cart into the caller's
+     * server-side cart. Called by the frontend immediately after
+     * login. Never rejects the whole payload for a bad line — every
+     * skipped guest line becomes an entry in
+     * {@code CartResponse.issues[]}.
+     */
+    @PostMapping("/merge")
+    public ApiResponse<CartResponse> mergeGuestCart(
+            @AuthenticationPrincipal String email,
+            @Valid @RequestBody MergeCartRequest request
+    ) {
+        User user = resolveUser(email);
+        return ApiResponse.of(cartService.merge(user, request));
     }
 
     // ---------------------------------------------------------------------
