@@ -58,13 +58,14 @@ class CartServiceTest {
     @Mock private ProductRepository productRepository;
 
     private final CartMapper mapper = new CartMapperImpl();
+    private final CartIssueDetector issueDetector = new CartIssueDetector();
 
     private CartService service;
     private User user;
 
     @BeforeEach
     void setUp() {
-        service = new CartService(cartRepository, cartItemRepository, mapper, productRepository);
+        service = new CartService(cartRepository, cartItemRepository, mapper, productRepository, issueDetector);
 
         user = new User();
         user.setId(UUID.randomUUID());
