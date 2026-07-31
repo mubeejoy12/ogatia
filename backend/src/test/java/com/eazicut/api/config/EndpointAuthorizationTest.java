@@ -247,6 +247,22 @@ class EndpointAuthorizationTest {
                 .andExpect(status().isOk());
     }
 
+    @Test @DisplayName("cart — POST /cart/merge anonymous → 401")
+    void cartMergeAnonymous() throws Exception {
+        mockMvc.perform(post("/cart/merge").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"lines\":[]}"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test @DisplayName("cart — POST /cart/merge with valid CUSTOMER Bearer (empty payload) → 200")
+    void cartMergeAuthenticated() throws Exception {
+        mockMvc.perform(post("/cart/merge")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(customer))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"lines\":[]}"))
+                .andExpect(status().isOk());
+    }
+
     // ------------------------------------------------------------------
     // Unknown routes still 401 when they require a body/write intent
     // (proves the default is authenticated, not permitAll)
