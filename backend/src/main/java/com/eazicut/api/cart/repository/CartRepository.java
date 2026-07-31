@@ -16,10 +16,17 @@ import com.eazicut.api.cart.entity.Cart;
  * always resolves the user's cart from the authenticated principal,
  * never from a caller-supplied cart id, so there's no IDOR to defend.
  *
- * <p>{@link #findByUserId} eagerly fetches {@code items} and each item's
- * {@code product} so a single query populates the whole read model —
- * avoids the N+1 that would otherwise fire when {@code CartMapper}
- * touches every line.
+ * <p>{@link #findByUserId} eagerly fetches {@code items} and each
+ * item's {@code product} — avoids the N+1 that would otherwise fire
+ * when {@code CartMapper} touches every line.
+ *
+ * <p>{@code Product.availableSizes} is intentionally NOT in the graph:
+ * adding it produces a Cartesian join with the items collection, so
+ * every cart item appears N times where N is that product's number of
+ * sizes. The @Batchsize on {@code Product} groups the follow-up size
+ * queries into a single round-trip when the mapper touches them.
+ * The touching must happen inside the same transaction that loaded
+ * the cart — see {@code CartService.readForUser}.
  */
 public interface CartRepository extends JpaRepository<Cart, UUID> {
 
