@@ -2,6 +2,7 @@ package com.eazicut.api.cart.service;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -12,6 +13,8 @@ import com.eazicut.api.cart.dto.AddCartItemRequest;
 import com.eazicut.api.cart.dto.CartIssueResponse;
 import com.eazicut.api.cart.dto.CartItemResponse;
 import com.eazicut.api.cart.dto.CartResponse;
+import com.eazicut.api.cart.dto.MergeCartRequest;
+import com.eazicut.api.cart.dto.MergeCartRequest.GuestLine;
 import com.eazicut.api.cart.dto.UpdateCartItemRequest;
 import com.eazicut.api.cart.entity.Cart;
 import com.eazicut.api.cart.entity.CartItem;
@@ -235,6 +238,123 @@ public class CartService {
         cart.getItems().clear();
         cartRepository.saveAndFlush(cart);
         return toResponse(cart);
+    }
+
+    /**
+     * Merge a guest (localStorage) cart into the authenticated user's
+     * server-side cart. Called by the frontend immediately after login.
+     *
+     * <p><strong>Merge rules per line:</strong>
+     * <ol>
+     *   <li>Resolve {@code productSlug} to a Product — skip if
+     *       unknown, soft-deleted, or {@code status != ACTIVE}. Record
+     *       a {@code product_removed} issue.</li>
+     *   <li>Verify the size is in {@code product.availableSizes} —
+     *       skip and record {@code size_unavailable} otherwise.</li>
+     *   <li>Upsert on {@code (cart, product, size)}:
+     *     <ul>
+     *       <li>If existing: {@code new_qty = min(existing + incoming, 20)}.
+     *           Record {@code quantity_capped} if the sum was trimmed.</li>
+     *       <li>If not: enforce the per-cart line cap (50). If full,
+     *           skip this line and record a single
+     *           {@code cart_too_large} issue for the whole overflow.
+     *           Otherwise insert with the current product's snapshot
+     *           and {@code new_qty = min(incoming, 20)}.</li>
+     *     </ul>
+     *   </li>
+     *   <li>Stock is intentionally NOT enforced here — a guest may
+     *       have added an item when stock was 20 and we're merging
+     *       after stock dropped to 2. Better to accept the line and
+     *       let {@code CartIssueDetector} flag it with
+     *       {@code out_of_stock} on the response, so the customer
+     *       sees "you have 5 in cart but only 2 available" instead
+     *       of "your item was silently dropped".</li>
+     * </ol>
+     *
+     * <p><strong>Never fails hard on a single guest line.</strong> A
+     * malformed guest cart never blocks the merge — every skip goes to
+     * {@code issues[]}. The customer always ends up with a usable
+     * server-side cart.
+     */
+    public CartResponse merge(User user, MergeCartRequest request) {
+        Cart cart = getOrCreate(user);
+        List<CartIssueResponse> mergeIssues = new ArrayList<>();
+
+        List<GuestLine> lines = request.lines() == null ? List.of() : request.lines();
+        int cartTooLargeOverflow = 0;
+
+        for (GuestLine guest : lines) {
+            Product product = productRepository.findBySlug(guest.productSlug()).orElse(null);
+            if (product == null || product.getStatus() != ProductStatus.ACTIVE) {
+                mergeIssues.add(new CartIssueResponse(null, "product_removed",
+                        "'%s' is no longer available in the atelier's catalogue."
+                                .formatted(guest.productSlug())));
+                continue;
+            }
+            if (product.getAvailableSizes() == null
+                    || !product.getAvailableSizes().contains(guest.size())) {
+                mergeIssues.add(new CartIssueResponse(null, "size_unavailable",
+                        "Size '%s' is no longer offered for '%s'."
+                                .formatted(guest.size(), product.getName())));
+                continue;
+            }
+
+            CartItem existing = cartItemRepository
+                    .findByCartIdAndProductIdAndSize(cart.getId(), product.getId(), guest.size())
+                    .orElse(null);
+
+            int desired = guest.quantity();
+            if (existing != null) {
+                int summed = existing.getQuantity() + desired;
+                int clamped = Math.min(summed, PER_LINE_QTY_CAP);
+                if (clamped < summed) {
+                    mergeIssues.add(new CartIssueResponse(existing.getId(), "quantity_capped",
+                            "'%s' quantity capped at %d.".formatted(product.getName(), PER_LINE_QTY_CAP)));
+                }
+                existing.setQuantity(clamped);
+            } else {
+                if (cart.getItems().size() >= PER_CART_LINE_CAP) {
+                    cartTooLargeOverflow++;
+                    continue;
+                }
+                int clamped = Math.min(desired, PER_LINE_QTY_CAP);
+                if (clamped < desired) {
+                    // No item id yet — the line is being created now.
+                    mergeIssues.add(new CartIssueResponse(null, "quantity_capped",
+                            "'%s' quantity capped at %d.".formatted(product.getName(), PER_LINE_QTY_CAP)));
+                }
+                CartItem line = newLine(cart, product, guest.size(), clamped);
+                cart.getItems().add(line);
+            }
+        }
+
+        if (cartTooLargeOverflow > 0) {
+            mergeIssues.add(new CartIssueResponse(null, "cart_too_large",
+                    "%d line%s dropped — the cart line cap is %d."
+                            .formatted(cartTooLargeOverflow,
+                                    cartTooLargeOverflow == 1 ? "" : "s",
+                                    PER_CART_LINE_CAP)));
+        }
+
+        cartRepository.saveAndFlush(cart);
+
+        // Merge the read-time issues from the detector with the merge-time
+        // issues we accumulated above. Merge issues carry itemId=null when
+        // the line was skipped or newly created — the frontend renders them
+        // as cart-level toasts rather than per-line badges.
+        CartResponse base = toResponse(cart);
+        List<CartIssueResponse> combined = new ArrayList<>(base.issues().size() + mergeIssues.size());
+        combined.addAll(mergeIssues);
+        combined.addAll(base.issues());
+        return new CartResponse(
+                base.id(),
+                base.currency(),
+                base.items(),
+                base.subtotal(),
+                base.itemCount(),
+                combined,
+                base.updatedAt()
+        );
     }
 
     // ---------------------------------------------------------------------
