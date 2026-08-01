@@ -1,6 +1,6 @@
 # Project Status
 
-**Reporting date:** 2026-07-30
+**Reporting date:** 2026-07-31
 **Reporting owner:** Beejoy Technologies (delivery)
 **Client:** Eazi Cut / Mubarak Abubakar
 
@@ -24,13 +24,14 @@
 | Phase | Scope | Status | Target |
 |---|---|---|---|
 | **1. Marketing Website** | Home, About, Collections, Lookbook, Contact | 🟢 90% — awaiting deployment + real photography | Aug 2026 |
-| **2. Product Catalogue & Commerce** | Categories, PDPs, cart, checkout, Paystack | 🟡 Shop + PDP live (F003); Category + Collection reference-data (B003); Authentication + Authorization shipped (B004) — Order module pending · Cart, checkout, Paystack pending | Q4 2026 |
+| **2. Product Catalogue & Commerce** | Categories, PDPs, cart, checkout, Paystack | 🟡 Shop + PDP live (F003); Categories + Collections (B003); Authentication (B004); Cart end-to-end with guest→server merge (B005) — Order module + Paystack pending | Q4 2026 |
 | **3. Bespoke Tailoring Engine** | Measurements, order lifecycle, atelier ops | ⚪ Not started | Q1 2027 |
 
 ---
 
 ## What shipped this reporting period
 
+- ✅ **Ticket B005 — Shopping Cart (v0.11.0)** — production-ready cart end-to-end. Guests keep their bag in `localStorage`; authenticated customers get a persistent server-side cart with per-line snapshots, read-time issue reporting, and a one-shot merge from guest to server at login. Six atomic stages: (1) V6 migration + Cart/CartItem entities + repositories + DTOs + `CartMapper` + `CartService.readForUser`; (2) CRUD — add/patch/remove/clear + `CartController` + `EndpointAuthorizationTest` extension; (3) `CartIssueDetector` emitting `price_changed` / `out_of_stock` / `size_unavailable` / `product_removed` on every read; (4) `POST /cart/merge` with silent skip for bad slugs / retired sizes and per-cart line cap enforcement; (5) frontend dual-mode `CartContext` rewrite — guest → server transition on login fires `POST /cart/merge`, `useCart` public API surface preserved so PDP/checkout compile unchanged; (6) full E2E gauntlet + docs (this stage). **CRITICAL invariant baked into entity + migration Javadoc:** cart snapshot price is historical/display only — never silently becomes the charged price. The Order pipeline (B006) enforces "customer must confirm changed price before Order is created" and writes an immutable `OrderItem` price. Backend tests 183/183 PASS (was 129 pre-B005; +54 new). 20/21 live E2E items pass (the one "fail" was Jackson formatting `500000.0` vs `500000.0000` — same value).
 - ✅ **Ticket B004 — Authentication & Authorization (v0.10.0)** — production-ready auth end-to-end. Retires the B001 scaffold (`spring.security.user.*` in-memory user, `permitAll` filter chain default, HTTP Basic) and replaces it with: DB-backed users (V4 migration, BCrypt password hashing, case-insensitive email uniqueness via the same `name_lower` pattern V2/V3 use), JWT bearer tokens (15-min HS256 access) + rotating refresh tokens (7-day, V5 migration, hash-only storage, HttpOnly Secure SameSite=Lax cookie scoped to `/api/v1/auth`), per-IP + per-email login rate limiting (5 attempts / 15 min rolling window, clean `LoginRateLimiter` interface with in-memory impl for launch), a secure-by-default `.anyRequest().authenticated()` filter chain with explicit public allowlist, and constant-time login (BCrypt runs even on unknown email to close the timing side-channel). Frontend gets `/login`, `/register`, `/account` (branded to the luxury voice — "Sign in to the Atelier", "Open an account"), an in-memory-access-token `AuthContext` with mount-time silent refresh, and a middleware gate for `/account` powered by a companion browser-visible session-marker cookie. Eight atomic stages: (1) User domain + PasswordEncoder + DB-backed UserDetailsService + dev admin seed via env vars; (2) registration + reusable `@ValidPassword` (8–128 length, blocklist per D6); (3) JWT infrastructure + secure-by-default filter chain flip + `EndpointAuthorizationTest` walking every mapped endpoint; (4) login + rate limiting + HTTP Basic retirement; (5) refresh-token persistence + rotation + refresh/logout endpoints; (6) `/auth/me` + `FullAuthFlowTest` end-to-end MockMvc loop; (7) frontend auth surface + middleware + session-marker cookie; (8) full E2E security gauntlet + docs (this stage). Backend tests 129/129 PASS (was 19 pre-B004; +110 new). 33/33 live E2E items verified positive.
 - ✅ **Ticket B003 — Category & Collection Reference Data (v0.9.0)** — production-ready CRUD REST for both taxonomies at `/api/v1/categories` and `/api/v1/collections` (public reads, admin writes), plus a dev-only idempotent seeder that ensures the six categories and six collections the frontend expects are present on every dev boot. Six atomic stages: (1) Category DTOs + mapper + exceptions + service with case-insensitive name normalisation and domain-level in-use check; (2) Category controller + service/repo tests + V2 migration adding `categories.name_lower` unique index (portable across H2 and PostgreSQL); (3) Collection DTOs/mapper/exceptions/service — direct parallel; (4) Collection controller + tests + V3 migration; (5) `ReferenceDataSeeder` `@Profile("dev")` `ApplicationRunner` with per-row `existsBySlug` idempotency guards; (6) frontend hardening + full E2E. Frontend additions: typed `src/lib/api/categories.ts` + `collections.ts` + matching `src/types/api/*.ts` (no redesign per D4); `src/features/shop/filters.ts` now `console.warn`s when the URL carries an unknown taxonomy value; three dead re-exports and one mock import removed from `src/features/shop/backendFilter.ts`. 14 live E2E items verified positive against the seeded taxonomy — category filter, collection filter, combined, related-products PDP (now working because seeded products share collections), reference-endpoint reads, and safe fallback for unknown taxonomy. Backend tests 56/56 PASS (was 19 pre-B003; +37 new). Typecheck clean, lint zero warnings, build 22 routes.
 - ✅ **Ticket F003 — Frontend Product API Integration (v0.8.0)** — `/shop` and `/shop/[slug]` no longer read mock product data. Six atomic stages: (1) typed API client foundation — `apiGet<T>`, envelope types, error subclasses, `NEXT_PUBLIC_API_URL` config, product adapter mapping every documented contract mismatch; (2) `/shop` rewired as an async server component reading URL as single source of truth, backend pagination, `mapApiProductPage` adapter; (3) price/availability filters, debounced search (300ms local → URL commit), full sort/pagination axes translated to Spring's `field,direction` syntax; (4) empty-state disambiguation ("no-results" vs "empty-catalogue") + 2-row toolbar skeleton; (5) `/shop/[slug]` full server-component rewrite — `fetchProductBySlug` catches `ApiNotFoundError` → branded `not-found.tsx`, related products via collection query, MetaRow hides on empty, dynamic `sitemap.ts` pages backend up to 2000 products with graceful build-time fallback; (6) end-to-end verification against a 26-product seed — every DoD axis proven live (search narrows, price filters arithmetic, sort ordering, pagination disjoint pages, PDP renders JSON-LD Product with sku + newArrival badge, invalid slug returns branded not-found with `noindex`, backend killed returns 200 with layout intact and zero backend text leaked). Typecheck ✅, lint ✅ zero warnings, production build ✅ (16.7s, 22 routes, `/shop` and `/shop/[slug]` correctly ƒ Dynamic). `grep -rn "@/lib/data/products" src/` returns zero matches.
@@ -89,17 +90,17 @@
 | Lighthouse score (est.) | Not yet measured | pending deployment |
 | Typecheck status | ✅ clean (`tsc --noEmit`) | — |
 | Lint status | ✅ zero warnings (`next lint`) | — |
-| Production build | ✅ 26 routes (`/login`, `/register`, `/account`, `Middleware` added in B004) | ↑ from 22 |
-| Backend tests | ✅ 129/129 PASS (was 56 pre-B004; +73 new auth/JWT/refresh/rate-limit/endpoint-matrix) | ↑ from 56 |
-| Flyway migrations | V1–V5 (V4 users, V5 refresh_tokens shipped in B004) | ↑ from V3 |
+| Production build | ✅ 26 routes (unchanged in B005 — cart lives inside the existing `/cart` page) | — |
+| Backend tests | ✅ 183/183 PASS (was 129 pre-B005; +54 new cart/mapper/issue-detector/merge/endpoint-matrix) | ↑ from 129 |
+| Flyway migrations | V1–V6 (V6 carts + cart_items shipped in B005) | ↑ from V5 |
 | Home HTML size | 3.24 kB | ✅ excellent |
 | Home first-load JS | 157 kB | ✅ excellent |
 | Collections index HTML | 514 B | ✅ excellent |
 | Collection detail HTML (×6) | 514 B each | ✅ excellent |
 | Favicon / apple-icon / manifest | ✅ all present | — |
 | Branded 404 + error boundary | ✅ present | — |
-| Customer shopping experience progress | 70% (Shop + PDP live; taxonomies wired; authentication + accounts shipped per B004; cart persistence, checkout, Paystack pending) | ↑ from 60% |
-| v1.0 launch progress | **~96%** | ↑ from 95% |
+| Customer shopping experience progress | 80% (Shop + PDP live; taxonomies wired; auth + accounts; cart end-to-end with guest→server merge per B005; orders + Paystack pending) | ↑ from 70% |
+| v1.0 launch progress | **~97%** | ↑ from 96% |
 
 ---
 
