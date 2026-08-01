@@ -9,14 +9,187 @@ Dates use ISO 8601. Unreleased sits at the top; each release moves it below.
 ## [Unreleased]
 
 ### Planned
-- Deploy v0.10.0 to Vercel production alongside a hosted backend instance
+- Deploy v0.11.0 to Vercel production alongside a hosted backend instance
 - Wire `services/contact.ts` to Resend (real inbox); read `?collection=` query on Contact form to pre-fill enquiry
 - Replace top 3 placeholder images with commissioned photography
 - NDPR consent banner + `/privacy` + `/terms` pages
 - Plausible analytics
-- Backend Order module
+- Backend Order module — the Order pipeline is what enforces the "customer must acknowledge price_changed / product_removed / out_of_stock issues before checkout" contract and writes the immutable OrderItem row
 - Auth hardening pass: email verification, password reset, refresh-token reuse detection, Redis-backed rate limiter for horizontal scale
-- Navbar sign-in / sign-out affordance
+- Cart UX polish: render `issues[]` as banners on `/cart`, optimistic UI on server-mode mutations, navbar sign-in/sign-out affordance
+
+---
+
+## [0.11.0] — 2026-07-31 — Ticket B005 · Shopping cart
+
+Production-ready cart end-to-end. Guest lines live in `localStorage`;
+authenticated customers get a persistent server-side cart with
+per-line snapshots, read-time issue reporting (price / stock / size /
+removed), and a one-shot merge from guest to server at login. The
+frontend's `useCart` public API is unchanged so PDP + checkout kept
+compiling without edits.
+
+Six atomic stages, one commit each:
+
+### Added — backend
+- **`V6__carts.sql`** — `carts` (one per user via `ux_cart_user`) +
+  `cart_items` (unique on `(cart_id, product_id, size)`, quantity
+  CHECK 1..20). Header explicitly captures the "snapshot price is
+  historical / display only — never silently becomes the charged
+  price" invariant.
+- **`cart` package** — `Cart` entity (one-to-one User, `@OrderBy
+  addedAt ASC`, cascade+orphanRemoval items), `CartItem` entity (live
+  Product FK + snapshot columns + audit timestamps via `@PrePersist`),
+  `CartRepository` (`findByUserId` with `@EntityGraph`,
+  `existsByUserId`), `CartItemRepository`
+  (`findByCartIdAndProductIdAndSize` upsert probe,
+  `findByIdAndCartId` ownership-safe fetch).
+- **DTOs** — `CartResponse`, `CartItemResponse`,
+  `CartItemSnapshotDto`, `CartIssueResponse`, `AddCartItemRequest`,
+  `UpdateCartItemRequest`, `MergeCartRequest` (+ nested `GuestLine`,
+  100-line payload cap).
+- **`CartMapper`** — MapStruct one-way entity → response with
+  `@Named` helpers for snapshot and the coarse `available` boolean
+  (ACTIVE + stock ≥ qty + size still offered).
+- **`CartService`** — `getOrCreate(user)`, `readForUser(user)` (merged
+  transaction so the mapper's lazy access lives in-session),
+  `add(user, req)`, `setQuantity(user, itemId, req)`,
+  `remove(user, itemId)`, `clear(user)`, `merge(user, req)`. Never
+  accepts a cart id from callers → IDOR closed at the API design
+  level. Validation order on add: 404 product → 409 status → 409 size
+  → 413 cap → 409 stock.
+- **`CartIssueDetector`** — `@Component`. Read-time inspector,
+  emits `price_changed` (BigDecimal `compareTo`, scale-safe),
+  `out_of_stock` (OoS/INACTIVE status OR stock < quantity),
+  `size_unavailable`, `product_removed` (ARCHIVED OR null product,
+  short-circuits). Multiple issues per line allowed except behind
+  the removed short-circuit.
+- **Exceptions** — `CartLineNotFoundException` (404 with identical
+  shape to "no such id" and "wrong cart" to close enumeration),
+  `InsufficientStockException` (409 with "Only N available" copy),
+  `ProductUnavailableException` (409 for non-ACTIVE),
+  `SizeUnavailableException` (409),
+  `CartTooLargeException` (413).
+- **`CartController`** — `GET /cart`, `POST /cart/items`,
+  `PATCH /cart/items/{id}`, `DELETE /cart/items/{id}`,
+  `DELETE /cart`, `POST /cart/merge`. Every method resolves `User`
+  from JWT principal; no cart id in any URL.
+
+### Changed — backend
+- **`SecurityConfig`** — added `HttpMethod.OPTIONS, "/**"` to public
+  allowlist (CORS preflight has no credentials by design). Enabled
+  `.cors(Customizer.withDefaults())` so Security consumes the
+  ambient `CorsConfigurationSource` bean at the correct pipeline
+  point.
+- **`CorsConfig`** — refactored to publish a
+  `CorsConfigurationSource` bean instead of a standalone
+  `CorsFilter`. Spring Security 6 idiom.
+- **`GlobalExceptionHandler`** — added `CartTooLargeException → 413
+  payload_too_large` handler.
+
+### Added — frontend
+- **`src/types/api/cart.ts`** — wire mirrors: `ApiCart`, `ApiCartItem`,
+  `ApiCartItemSnapshot`, `ApiCartIssue` + issue-code union,
+  `ApiAddCartItemRequest`, `ApiUpdateCartItemRequest`,
+  `ApiMergeCartRequest` + `ApiMergeCartLine`.
+- **`src/lib/api/cart.ts`** — typed client with
+  `credentials: "include"` + Bearer from `AuthContext`. Deliberately
+  separate from the generic `apiGet` so unrelated `/products` calls
+  stay cookie-free.
+
+### Changed — frontend
+- **`src/features/cart/types.ts`** — added `productId?: string` to
+  `CartSnapshot` (required for server mode). Added `mode: CartMode`
+  and `issues: ApiCartIssue[]` to `CartApi`.
+- **`src/features/cart/CartContext.tsx`** — dual-mode rewrite. Guest
+  mode = reducer + `localStorage` (unchanged). Authenticated mode =
+  every API response replaces state atomically. Guest→auth
+  transition fires `POST /cart/merge` with local lines then clears
+  `localStorage`. Auth→guest wipes in-memory state; leaves
+  `localStorage` alone. Server-mode mutations are fire-and-forget;
+  state updates when the API responds. `useCart` API surface
+  unchanged.
+- **`src/features/shop/ProductActions.tsx`** — passes
+  `productId: product.id` in the snapshot so server-mode add works.
+
+### Backend tests
+- `CartRepositoryTest` (7 slice tests — findByUserId + eager fetch,
+  existsByUserId, ux_cart_user rejects duplicate,
+  ux_cart_item_line rejects duplicate, same product different sizes,
+  quantity 0/21 CHECK).
+- `CartServiceTest` (28 unit tests — getOrCreate happy paths,
+  toResponse subtotal + snapshot-not-current invariant, availability
+  matrix, add first / bump / cap / unknown / not active / bad size /
+  exceed stock / cart too large, setQuantity happy / unknown /
+  above stock, remove happy / unknown, clear, merge empty / fresh /
+  sum-and-cap / unknown-slug / inactive / size-unavailable /
+  cart-too-large / mixed).
+- `CartIssueDetectorTest` (11 unit tests — healthy, price_changed,
+  BigDecimal scale ignored, OOS status, INACTIVE, qty > stock,
+  size_unavailable, ARCHIVED short-circuit, null product, multi-line,
+  multi-issue-per-line).
+- `EndpointAuthorizationTest` extended with 8 cart authorization
+  cases (GET/POST/PATCH/DELETE/DELETE-cart/POST-merge anonymous → 401;
+  authenticated GET + merge → 200).
+
+### Verified end-to-end (20/21)
+Live gauntlet against a fresh backend on H2 — every path the
+frontend + Order pipeline will consume:
+
+| # | Check | Result |
+|---|---|---|
+| 1  | GET /cart on fresh account → 200 empty | ✅ |
+| 2  | POST /cart/items add Alpha/L×2 + Beta/M×1 → 2 lines | ✅ |
+| 3  | Add Alpha/L again → line quantity bumped to 3 | ✅ |
+| 4  | Admin bumps Alpha price 100k → 130k → `price_changed` issue on cart | ✅ |
+| 5  | Cart subtotal still uses SNAPSHOT price (100k×3 + 200k = 500k, NOT current 130k×3 + 200k = 590k) | ✅ (value correct; format `500000.0` vs `500000.0000` is Jackson serialisation only) |
+| 6  | Admin retires Beta's size M → `size_unavailable` joins `price_changed` | ✅ |
+| 7  | PATCH Alpha/L quantity 3 → 1 | ✅ |
+| 8  | DELETE Beta line → cart has 1 line | ✅ |
+| 9  | Merge fresh customer with `[alpha/XL×1, ghost/L×1]` → 1 line, `product_removed` issue for ghost | ✅ |
+| 10 | DELETE /cart → 0 items | ✅ |
+| 11 | Customer B DELETE customer A's item id → 404 (not 403 — enumeration closed) | ✅ |
+| 12 | Anonymous GET / POST / merge → 401 | ✅ |
+| 13 | Re-login → cart survives (server-persisted) | ✅ |
+
+### Pricing invariant (recorded in the code and the audit)
+1. Cart snapshot price is HISTORICAL / DISPLAY only.
+2. At checkout, the Order pipeline compares snapshot price with the current product price.
+3. If different, the customer must EXPLICITLY confirm the new price before an Order is created.
+4. The final Order stores the confirmed price as an immutable `OrderItem` price snapshot.
+5. The old cart snapshot price must never silently become the charged/order price.
+
+B005 emits `price_changed` (and the sibling issue codes) as the
+signal the Order pipeline will act on. Enforcement of point 3 is
+scheduled for B006 (Orders).
+
+### Known limitations & deferred hardening
+- **Cart page UI doesn't yet render `issues[]` as banners** — the
+  data is served correctly; the visual wiring is a polish ticket.
+- **Server-mode mutations are fire-and-forget** — no optimistic UI,
+  no toast on failure. Errors log to console; a follow-up ticket
+  can add per-mutation UX.
+- **No cart expiry / abandoned-cart job** — carts persist until the
+  customer empties them or checks out. A separate nightly job is
+  out of scope for launch.
+- **In-memory H2 caveat** — dev H2 loses cart data on backend
+  restart (same as everything else in dev). Prod uses PostgreSQL.
+- **No stock reservation on add** — first-come-first-served at
+  Order-creation time; B006 does the `SELECT … FOR UPDATE`.
+- **`quantity_capped` on merge only** — mutation endpoints reject
+  over-cap requests with 409; only the lenient merge flow silently
+  caps and emits the issue.
+
+### Build metrics (v0.11.0)
+
+| | Value |
+|---|---|
+| Backend tests | 183/183 PASS (was 129 pre-B005; +54 new) |
+| Flyway migrations | V1–V6 (V6 shipped in B005) |
+| Frontend routes | 26 (unchanged — no new pages) |
+| Frontend typecheck | ✅ clean |
+| Frontend lint | ✅ zero warnings |
+| Frontend production build | ✅ compiles |
 
 ---
 
