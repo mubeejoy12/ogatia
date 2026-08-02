@@ -24,6 +24,10 @@ import com.eazicut.api.auth.exception.TooManyLoginAttemptsException;
 import com.eazicut.api.cart.exception.CartTooLargeException;
 import com.eazicut.api.common.dto.ApiError;
 import com.eazicut.api.common.dto.ApiError.FieldViolation;
+import com.eazicut.api.orders.exception.CartEmptyException;
+import com.eazicut.api.orders.exception.MissingIdempotencyKeyException;
+import com.eazicut.api.orders.exception.PriceMismatchException;
+import com.eazicut.api.orders.exception.UnknownDeliveryMethodException;
 
 /**
  * Central exception handler. Every non-2xx response from this API
@@ -230,6 +234,61 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
                 .header(HttpHeaders.RETRY_AFTER, String.valueOf(retryAfterSeconds))
                 .body(body);
+    }
+
+    /**
+     * Order creation with an empty cart. 400 — the request is
+     * malformed in context (nothing to order), not a semantic
+     * conflict with the world.
+     */
+    @ExceptionHandler(CartEmptyException.class)
+    public ResponseEntity<ApiError> handleCartEmpty(
+            CartEmptyException ex,
+            HttpServletRequest request
+    ) {
+        return build(HttpStatus.BAD_REQUEST, "cart_empty", ex.getMessage(), request);
+    }
+
+    /**
+     * Order creation with a bad delivery-method id. 400 — the id
+     * doesn't match any known method (fabricated or retired).
+     */
+    @ExceptionHandler(UnknownDeliveryMethodException.class)
+    public ResponseEntity<ApiError> handleUnknownDeliveryMethod(
+            UnknownDeliveryMethodException ex,
+            HttpServletRequest request
+    ) {
+        return build(HttpStatus.BAD_REQUEST, "unknown_delivery_method", ex.getMessage(), request);
+    }
+
+    /**
+     * Missing Idempotency-Key header on order creation. 400 — the
+     * header is required per B006 D4; refusing loud prevents
+     * duplicate orders on retry / double-click.
+     */
+    @ExceptionHandler(MissingIdempotencyKeyException.class)
+    public ResponseEntity<ApiError> handleMissingIdempotencyKey(
+            MissingIdempotencyKeyException ex,
+            HttpServletRequest request
+    ) {
+        return build(HttpStatus.BAD_REQUEST, "missing_idempotency_key", ex.getMessage(), request);
+    }
+
+    /**
+     * Order price re-check failed. 409 with the specific slug
+     * {@code price_mismatch} (not the generic {@code conflict}) so
+     * the frontend can render "prices updated — please review" copy
+     * without inspecting the message string.
+     *
+     * <p>Ordered <em>above</em> the generic ConflictException handler
+     * — Spring picks the most specific one.
+     */
+    @ExceptionHandler(PriceMismatchException.class)
+    public ResponseEntity<ApiError> handlePriceMismatch(
+            PriceMismatchException ex,
+            HttpServletRequest request
+    ) {
+        return build(HttpStatus.CONFLICT, "price_mismatch", ex.getMessage(), request);
     }
 
     /**
