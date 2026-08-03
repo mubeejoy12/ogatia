@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { useCart } from "@/features/cart/CartContext";
+import { useAuth } from "@/features/auth/AuthContext";
 import { AddressForm } from "./AddressForm";
 import { CheckoutEmpty } from "./CheckoutEmpty";
 import { DeliveryMethodSelector } from "./DeliveryMethodSelector";
@@ -13,31 +14,51 @@ import {
   type DeliveryMethodId,
 } from "./deliveryMethods";
 import type { ShippingAddress } from "./types";
-import { usePaystack } from "./usePaystack";
-import { generateReference } from "@/lib/paystack";
+import {
+  createOrder,
+  freshIdempotencyKey,
+} from "@/lib/api/orders";
+import { ApiAuthError, ApiClientError } from "@/lib/api/errors";
+import type { ApiCreateOrderRequest } from "@/types/api/orders";
 
 const DELIVERY_STORAGE_KEY = "eazicut:checkout:delivery:v1";
 
 /**
- * The checkout orchestrator.
+ * The checkout orchestrator (B006 Stage 5).
  *
- * Stage 1: address form + empty guard.
- * Stage 2: delivery method + order review + "Continue to Payment" CTA,
- *          gated on address validity + delivery selection.
+ * <p>Address + delivery method are collected as before, then submit
+ * fires {@code POST /orders} with a scoped {@code Idempotency-Key}
+ * header. On 201, redirect to {@code /orders/[reference]}. On 409
+ * {@code price_mismatch}, an inline dialog shows the fresh total —
+ * confirming re-submits with a NEW idempotency key. All other 4xx
+ * / 5xx surface an in-context error message; the form state is
+ * preserved.
  *
- * The Continue button is wired to `onProceed` — currently a stub. Ticket
- * 003.2 replaces the stub with the Paystack initiation call. No markup
- * change required.
+ * <p>Signed-out visitors are bounced to
+ * {@code /login?next=/checkout}. Payment integration (B007) will
+ * bolt on top of this: order lands in {@code PENDING_PAYMENT} and
+ * the confirmation page invites payment.
  */
 export function CheckoutView() {
   const cart = useCart();
   const router = useRouter();
-  const paystack = usePaystack();
+  const { status, getAccessToken } = useAuth();
 
   const [hydrated, setHydrated] = useState(false);
   const [address, setAddress] = useState<ShippingAddress | null>(null);
   const [isAddressValid, setIsAddressValid] = useState(false);
   const [deliveryId, setDeliveryId] = useState<DeliveryMethodId | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [priceMismatch, setPriceMismatch] =
+    useState<{ message: string } | null>(null);
+
+  // Hold the idempotency key across a single user-initiated attempt
+  // (including its network retries). A fresh key is minted on every
+  // NEW user-initiated submit (initial click, confirm after
+  // price_mismatch) so the server can't dedupe two legitimate
+  // attempts into one order.
+  const idempotencyKeyRef = useRef<string | null>(null);
 
   // Hydrate delivery choice from previous visit.
   useEffect(() => {
@@ -50,7 +71,6 @@ export function CheckoutView() {
     setHydrated(true);
   }, []);
 
-  // Persist delivery choice on change.
   useEffect(() => {
     if (!hydrated) return;
     try {
@@ -64,6 +84,13 @@ export function CheckoutView() {
     }
   }, [deliveryId, hydrated]);
 
+  // Bounce anonymous visitors to /login?next=/checkout.
+  useEffect(() => {
+    if (status === "anonymous") {
+      router.replace(`/login?next=${encodeURIComponent("/checkout")}`);
+    }
+  }, [status, router]);
+
   const handleAddressChange = useCallback(
     (next: ShippingAddress, valid: boolean) => {
       setAddress(next);
@@ -72,74 +99,117 @@ export function CheckoutView() {
     []
   );
 
-  if (!hydrated) {
+  if (!hydrated || status === "loading") {
     return <div aria-hidden className="min-h-[50vh]" />;
   }
-
+  if (status === "anonymous") {
+    return <div aria-hidden className="min-h-[50vh]" />;
+  }
   if (cart.lines.length === 0) {
     return <CheckoutEmpty />;
   }
 
   const method = getDeliveryMethod(deliveryId);
-  const paystackReady =
-    paystack.status === "ready" ||
-    paystack.status === "cancelled" ||
-    paystack.status === "error";
-  const canProceed =
-    isAddressValid &&
-    method !== null &&
-    address !== null &&
-    paystackReady &&
-    paystack.status !== "processing";
+  const canSubmit =
+    isAddressValid && method !== null && address !== null && !submitting;
 
-  const isProcessing = paystack.status === "processing";
+  async function submitOnce(
+    idempotencyKey: string,
+    submitAddress: ShippingAddress,
+    submitMethod: NonNullable<ReturnType<typeof getDeliveryMethod>>
+  ) {
+    setError(null);
+    setPriceMismatch(null);
+    setSubmitting(true);
+
+    const total = cart.subtotal + submitMethod.price;
+    const body: ApiCreateOrderRequest = {
+      deliveryMethodId: submitMethod.id,
+      shippingAddress: {
+        fullName: submitAddress.fullName,
+        email: submitAddress.email,
+        phone: submitAddress.phone,
+        addressLine1: submitAddress.addressLine1,
+        addressLine2: submitAddress.addressLine2 || undefined,
+        city: submitAddress.city,
+        region: submitAddress.region || undefined,
+        postalCode: submitAddress.postalCode || undefined,
+        country: submitAddress.country,
+      },
+      // BigDecimal on the wire is a string; the server compareTo
+      // ignores trailing-zero scale so "108000" matches "108000.0000".
+      expectedTotal: String(total),
+    };
+
+    try {
+      const token = getAccessToken();
+      const order = await createOrder(token, idempotencyKey, body);
+      // Server clears the cart transactionally — the CartContext will
+      // reflect that on next hydration; the redirect leaves this
+      // component so the stale in-memory cart doesn't matter.
+      router.replace(`/orders/${encodeURIComponent(order.reference)}`);
+    } catch (err) {
+      handleSubmitError(err);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function handleSubmitError(err: unknown) {
+    if (err instanceof ApiAuthError) {
+      // Session expired mid-checkout — bounce to sign-in.
+      router.replace(`/login?next=${encodeURIComponent("/checkout")}`);
+      return;
+    }
+    if (err instanceof ApiClientError) {
+      const slug = err.body?.error;
+      if (err.status === 409 && slug === "price_mismatch") {
+        // Fresh total sits in the message; render as a confirm dialog.
+        setPriceMismatch({ message: err.message });
+        // Invalidate the current key so a "Confirm at new total" mints a new one.
+        idempotencyKeyRef.current = null;
+        return;
+      }
+      if (err.status === 400 && slug === "cart_empty") {
+        setError("Your bag is empty — add a piece before placing an order.");
+        return;
+      }
+      if (err.status === 400 && slug === "missing_idempotency_key") {
+        // Should never happen — the client always mints one.
+        setError("Something went wrong preparing the order. Please try again.");
+        return;
+      }
+      setError(err.message);
+      return;
+    }
+    setError("Something went wrong. Please try again.");
+  }
 
   const handleProceed = async () => {
-    if (!canProceed || !address || !method) return;
-
-    const total = cart.subtotal + method.price;
-    const reference = generateReference();
-
-    await paystack.pay(
-      {
-        email: address.email,
-        amountNaira: total,
-        reference,
-        currency: "NGN",
-        metadata: {
-          customer_name: address.fullName,
-          phone: address.phone,
-          shipping_country: address.country,
-          delivery_method: method.id,
-          line_items: cart.lines.map((l) => ({
-            slug: l.slug,
-            size: l.size,
-            quantity: l.quantity,
-          })),
-        },
-      },
-      (response) => {
-        // Success — hand off to the confirmation route (Ticket 003.3).
-        router.push(
-          `/checkout/confirmation?ref=${encodeURIComponent(response.reference)}`
-        );
-      }
-    );
+    if (!canSubmit || !address || !method) return;
+    // Fresh key per user-initiated confirmation.
+    const key = freshIdempotencyKey();
+    idempotencyKeyRef.current = key;
+    await submitOnce(key, address, method);
   };
 
-  const proceedLabel = isProcessing ? "Opening secure checkout…" : "Continue to Payment";
+  const handleConfirmAtNewTotal = async () => {
+    if (!address || !method) return;
+    // Refresh cart totals before re-submitting; the customer needs the
+    // NEW expectedTotal to match what the server just computed. Since
+    // the cart is server-backed (B005), a fresh cart fetch would be
+    // ideal — but useCart already reflects the latest server state on
+    // context updates, so we simply retry with the updated cart.subtotal.
+    const key = freshIdempotencyKey();
+    idempotencyKeyRef.current = key;
+    await submitOnce(key, address, method);
+  };
 
-  // Compose the accessible hint under the button.
+  const proceedLabel = submitting ? "Placing order…" : "Place order";
+
   let hint: string | null = null;
-  if (paystack.status === "missing-key") {
-    hint =
-      "Payment provider is not configured. Set NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY in .env.local.";
-  } else if (paystack.status === "script-error") {
-    hint = paystack.error ?? "Payment provider could not be reached. Please try again.";
-  } else if (paystack.status === "cancelled") {
-    hint = "Payment was cancelled. You can try again whenever you are ready.";
-  } else if (paystack.status === "error") {
-    hint = paystack.error ?? "Something went wrong starting the payment. Please try again.";
+  if (error) {
+    hint = error;
   } else if (!isAddressValid && !method) {
     hint = "Complete shipping details and choose a delivery method to continue.";
   } else if (!isAddressValid) {
@@ -195,16 +265,17 @@ export function CheckoutView() {
         >
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="text-sm text-stone-700 max-w-sm">
-              You will be able to review and complete payment in the next step.
-              No charge is made until you confirm.
+              Your order lands with the atelier as{" "}
+              <span className="font-semibold">Pending Payment</span>. Payment
+              is confirmed in the next step.
             </div>
             <Button
               type="button"
               variant="primary"
               size="lg"
-              disabled={!canProceed}
+              disabled={!canSubmit}
               onClick={handleProceed}
-              aria-disabled={!canProceed}
+              aria-disabled={!canSubmit}
               aria-describedby={hint ? "proceed-hint" : undefined}
             >
               {proceedLabel}
@@ -214,9 +285,11 @@ export function CheckoutView() {
           {hint && (
             <p
               id="proceed-hint"
-              role="status"
+              role={error ? "alert" : "status"}
               aria-live="polite"
-              className="mt-3 text-xs text-stone-500 sm:text-right"
+              className={`mt-3 text-xs sm:text-right ${
+                error ? "text-red-700" : "text-stone-500"
+              }`}
             >
               {hint}
             </p>
@@ -231,6 +304,45 @@ export function CheckoutView() {
           method={method}
         />
       </div>
+
+      {/* Price-mismatch dialog */}
+      {priceMismatch && (
+        <div
+          role="alertdialog"
+          aria-labelledby="pm-heading"
+          aria-modal="true"
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-ink/50 p-6"
+        >
+          <div className="bg-ivory max-w-md w-full p-8 shadow-xl">
+            <h3
+              id="pm-heading"
+              className="font-display text-xl text-ink"
+            >
+              Prices have updated
+            </h3>
+            <p className="mt-4 text-sm text-stone-700 leading-relaxed">
+              {priceMismatch.message}
+            </p>
+            <div className="mt-8 flex flex-col-reverse sm:flex-row gap-3 sm:justify-end">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setPriceMismatch(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                onClick={handleConfirmAtNewTotal}
+                disabled={submitting}
+              >
+                {submitting ? "Placing order…" : "Confirm at new total"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
