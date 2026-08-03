@@ -25,6 +25,7 @@ import com.eazicut.api.cart.exception.CartTooLargeException;
 import com.eazicut.api.common.dto.ApiError;
 import com.eazicut.api.common.dto.ApiError.FieldViolation;
 import com.eazicut.api.orders.exception.CartEmptyException;
+import com.eazicut.api.orders.exception.InvalidOrderStatusTransitionException;
 import com.eazicut.api.orders.exception.MissingIdempotencyKeyException;
 import com.eazicut.api.orders.exception.PriceMismatchException;
 import com.eazicut.api.orders.exception.UnknownDeliveryMethodException;
@@ -289,6 +290,19 @@ public class GlobalExceptionHandler {
             HttpServletRequest request
     ) {
         return build(HttpStatus.CONFLICT, "price_mismatch", ex.getMessage(), request);
+    }
+
+    /**
+     * Illegal admin status transition (e.g. DELIVERED → SHIPPED).
+     * 409 with slug {@code invalid_status_transition} so the admin
+     * UI can render precise copy without message parsing.
+     */
+    @ExceptionHandler(InvalidOrderStatusTransitionException.class)
+    public ResponseEntity<ApiError> handleInvalidTransition(
+            InvalidOrderStatusTransitionException ex,
+            HttpServletRequest request
+    ) {
+        return build(HttpStatus.CONFLICT, "invalid_status_transition", ex.getMessage(), request);
     }
 
     /**
