@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
@@ -56,10 +57,23 @@ export default function AccountPage() {
         </div>
       </dl>
 
-      <p className="mt-10 text-sm text-ink/70">
-        Order history and commissions in progress will appear here once the
-        orders module ships.
-      </p>
+      <div className="mt-14 grid grid-cols-1 gap-6 border-t border-ink/10 pt-8 sm:grid-cols-2">
+        <Link
+          href="/account/orders"
+          className="group block border border-ink/10 p-6 transition hover:border-ink"
+        >
+          <p className="text-xs uppercase tracking-widest text-gold">Orders</p>
+          <p className="mt-2 font-display text-2xl text-ink">
+            Your commissions
+          </p>
+          <p className="mt-2 text-sm text-ink/70">
+            Every order you have placed, in one place.
+          </p>
+          <span className="mt-4 inline-block text-sm text-ink/70 group-hover:text-ink">
+            View →
+          </span>
+        </Link>
+      </div>
 
       <button
         onClick={() => {
