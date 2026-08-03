@@ -2,6 +2,7 @@ package com.eazicut.api.config;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -317,6 +318,53 @@ class EndpointAuthorizationTest {
                                                     "addressLine1":"1","city":"Lagos","country":"Nigeria"},
                                  "expectedTotal":8000}"""))
                 .andExpect(status().isBadRequest());
+    }
+
+    // ------------------------------------------------------------------
+    // /admin/orders/** — admin-only surface (B006 Stage 4)
+    // ------------------------------------------------------------------
+
+    @Test @DisplayName("admin orders — GET /admin/orders anonymous → 401")
+    void adminOrdersListAnonymous() throws Exception {
+        mockMvc.perform(get("/admin/orders")).andExpect(status().isUnauthorized());
+    }
+
+    @Test @DisplayName("admin orders — GET /admin/orders CUSTOMER Bearer → 403")
+    void adminOrdersListCustomer() throws Exception {
+        mockMvc.perform(get("/admin/orders")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(customer)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test @DisplayName("admin orders — GET /admin/orders/{id} CUSTOMER Bearer → 403")
+    void adminOrdersGetCustomer() throws Exception {
+        mockMvc.perform(get("/admin/orders/" + UUID.randomUUID())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(customer)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test @DisplayName("admin orders — GET /admin/orders/reference/{ref} CUSTOMER Bearer → 403")
+    void adminOrdersGetByReferenceCustomer() throws Exception {
+        mockMvc.perform(get("/admin/orders/reference/EAZI-x-y")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(customer)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test @DisplayName("admin orders — PATCH /admin/orders/{id}/status anonymous → 401")
+    void adminOrdersPatchAnonymous() throws Exception {
+        mockMvc.perform(patch("/admin/orders/" + UUID.randomUUID() + "/status")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"CANCELLED\"}"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test @DisplayName("admin orders — PATCH /admin/orders/{id}/status CUSTOMER Bearer → 403")
+    void adminOrdersPatchCustomer() throws Exception {
+        mockMvc.perform(patch("/admin/orders/" + UUID.randomUUID() + "/status")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(customer))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"CANCELLED\"}"))
+                .andExpect(status().isForbidden());
     }
 
     // ------------------------------------------------------------------
