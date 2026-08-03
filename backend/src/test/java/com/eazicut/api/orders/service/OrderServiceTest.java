@@ -41,6 +41,7 @@ import com.eazicut.api.orders.entity.OrderItem;
 import com.eazicut.api.orders.entity.OrderStatus;
 import com.eazicut.api.orders.entity.ShippingAddress;
 import com.eazicut.api.orders.exception.CartEmptyException;
+import com.eazicut.api.orders.exception.InvalidOrderStatusTransitionException;
 import com.eazicut.api.orders.exception.MissingIdempotencyKeyException;
 import com.eazicut.api.orders.exception.PriceMismatchException;
 import com.eazicut.api.orders.exception.UnknownDeliveryMethodException;
@@ -442,6 +443,84 @@ class OrderServiceTest {
 
         assertThat(resp.shippingCost()).isEqualByComparingTo(BigDecimal.ZERO);
         assertThat(resp.total()).isEqualByComparingTo(new BigDecimal("100000"));
+    }
+
+    // ------------------------------------------------------------------
+    // adminUpdateStatus (Stage 4)
+    // ------------------------------------------------------------------
+
+    @Test
+    @DisplayName("adminUpdateStatus — happy path PENDING_PAYMENT → CANCELLED")
+    void adminUpdateStatusHappy() {
+        Order order = sampleOrder("EAZI-c");
+        order.setStatus(OrderStatus.PENDING_PAYMENT);
+        given(orderRepository.findById(order.getId())).willReturn(Optional.of(order));
+        given(orderRepository.saveAndFlush(any(Order.class))).willAnswer(inv -> inv.getArgument(0));
+
+        OrderResponse resp = service.adminUpdateStatus(order.getId(), OrderStatus.CANCELLED);
+
+        assertThat(resp.status()).isEqualTo(OrderStatus.CANCELLED);
+        verify(orderRepository).saveAndFlush(order);
+    }
+
+    @Test
+    @DisplayName("adminUpdateStatus — happy path multi-step PAID → FULFILLING")
+    void adminUpdateStatusPaidToFulfilling() {
+        Order order = sampleOrder("EAZI-p");
+        order.setStatus(OrderStatus.PAID);
+        given(orderRepository.findById(order.getId())).willReturn(Optional.of(order));
+        given(orderRepository.saveAndFlush(any(Order.class))).willAnswer(inv -> inv.getArgument(0));
+
+        OrderResponse resp = service.adminUpdateStatus(order.getId(), OrderStatus.FULFILLING);
+        assertThat(resp.status()).isEqualTo(OrderStatus.FULFILLING);
+    }
+
+    @Test
+    @DisplayName("adminUpdateStatus — illegal transition DELIVERED → SHIPPED → 409 with transition detail")
+    void adminUpdateStatusIllegalTransition() {
+        Order order = sampleOrder("EAZI-d");
+        order.setStatus(OrderStatus.DELIVERED);
+        given(orderRepository.findById(order.getId())).willReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> service.adminUpdateStatus(order.getId(), OrderStatus.SHIPPED))
+                .isInstanceOf(InvalidOrderStatusTransitionException.class)
+                .hasMessageContaining("DELIVERED").hasMessageContaining("SHIPPED");
+        verify(orderRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    @DisplayName("adminUpdateStatus — CANCELLED is terminal; no transitions permitted out")
+    void adminUpdateStatusTerminalCancelled() {
+        Order order = sampleOrder("EAZI-x");
+        order.setStatus(OrderStatus.CANCELLED);
+        given(orderRepository.findById(order.getId())).willReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> service.adminUpdateStatus(order.getId(), OrderStatus.PAID))
+                .isInstanceOf(InvalidOrderStatusTransitionException.class);
+        verify(orderRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    @DisplayName("adminUpdateStatus — same-status PATCH refused (client bug, not a no-op)")
+    void adminUpdateStatusSameStatus() {
+        Order order = sampleOrder("EAZI-s");
+        order.setStatus(OrderStatus.PAID);
+        given(orderRepository.findById(order.getId())).willReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> service.adminUpdateStatus(order.getId(), OrderStatus.PAID))
+                .isInstanceOf(InvalidOrderStatusTransitionException.class);
+        verify(orderRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    @DisplayName("adminUpdateStatus — unknown order id → ResourceNotFoundException (404)")
+    void adminUpdateStatusUnknown() {
+        UUID id = UUID.randomUUID();
+        given(orderRepository.findById(id)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.adminUpdateStatus(id, OrderStatus.CANCELLED))
+                .isInstanceOf(ResourceNotFoundException.class);
+        verify(orderRepository, never()).saveAndFlush(any());
     }
 
     // ------------------------------------------------------------------
