@@ -24,6 +24,7 @@ import com.eazicut.api.orders.entity.OrderItem;
 import com.eazicut.api.orders.entity.OrderStatus;
 import com.eazicut.api.orders.entity.ShippingAddress;
 import com.eazicut.api.orders.exception.CartEmptyException;
+import com.eazicut.api.orders.exception.InvalidOrderStatusTransitionException;
 import com.eazicut.api.orders.exception.MissingIdempotencyKeyException;
 import com.eazicut.api.orders.exception.PriceMismatchException;
 import com.eazicut.api.orders.exception.UnknownDeliveryMethodException;
@@ -132,6 +133,38 @@ public class OrderService {
     @Transactional(readOnly = true)
     public Page<OrderResponse> adminFindAll(Pageable pageable) {
         return orderRepository.findAll(pageable).map(orderMapper::toResponse);
+    }
+
+    // ------------------------------------------------------------------
+    // Admin writes (Stage 4)
+    // ------------------------------------------------------------------
+
+    /**
+     * Move an order to a new status. Rejected with
+     * {@link InvalidOrderStatusTransitionException} if the target
+     * status isn't reachable from the current one per
+     * {@link OrderStatusTransitions}.
+     *
+     * <p>No side effects beyond the status change in this stage —
+     * payment capture (PAID) integration is B007; refund
+     * disbursement to the payment provider is a later ticket.
+     * Concurrent PATCHes on the same order can race; adding
+     * {@code @Version} on {@code Order} for optimistic locking is
+     * documented as deferred hardening.
+     */
+    @Transactional
+    public OrderResponse adminUpdateStatus(UUID orderId, OrderStatus newStatus) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Order", orderId));
+
+        OrderStatus current = order.getStatus();
+        if (!OrderStatusTransitions.isAllowed(current, newStatus)) {
+            throw new InvalidOrderStatusTransitionException(current, newStatus);
+        }
+
+        order.setStatus(newStatus);
+        Order saved = orderRepository.saveAndFlush(order);
+        return orderMapper.toResponse(saved);
     }
 
     // ------------------------------------------------------------------
