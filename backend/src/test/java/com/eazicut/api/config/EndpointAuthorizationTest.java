@@ -264,6 +264,62 @@ class EndpointAuthorizationTest {
     }
 
     // ------------------------------------------------------------------
+    // /orders/** — customer-facing CRUD surface (B006 Stage 3)
+    // ------------------------------------------------------------------
+
+    @Test @DisplayName("orders — GET /orders anonymous → 401")
+    void ordersListAnonymous() throws Exception {
+        mockMvc.perform(get("/orders")).andExpect(status().isUnauthorized());
+    }
+
+    @Test @DisplayName("orders — POST /orders anonymous → 401")
+    void ordersCreateAnonymous() throws Exception {
+        mockMvc.perform(post("/orders")
+                        .header("Idempotency-Key", "test-key")
+                        .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test @DisplayName("orders — GET /orders/{id} anonymous → 401")
+    void ordersGetByIdAnonymous() throws Exception {
+        mockMvc.perform(get("/orders/" + UUID.randomUUID()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test @DisplayName("orders — GET /orders/reference/{ref} anonymous → 401")
+    void ordersGetByReferenceAnonymous() throws Exception {
+        mockMvc.perform(get("/orders/reference/EAZI-x-y"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test @DisplayName("orders — GET /orders with valid CUSTOMER Bearer → 200 (empty page)")
+    void ordersListAuthenticated() throws Exception {
+        mockMvc.perform(get("/orders")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(customer)))
+                .andExpect(status().isOk());
+    }
+
+    @Test @DisplayName("orders — GET /orders/{unknown-id} with valid Bearer → 404 (not 401 / not 403)")
+    void ordersGetUnknownId() throws Exception {
+        mockMvc.perform(get("/orders/" + UUID.randomUUID())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(customer)))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test @DisplayName("orders — POST /orders WITHOUT Idempotency-Key header → 400 (missing_idempotency_key)")
+    void ordersCreateMissingKey() throws Exception {
+        mockMvc.perform(post("/orders")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(customer))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"deliveryMethodId":"lagos-standard",
+                                 "shippingAddress":{"fullName":"C","email":"c@ex.com","phone":"+2340",
+                                                    "addressLine1":"1","city":"Lagos","country":"Nigeria"},
+                                 "expectedTotal":8000}"""))
+                .andExpect(status().isBadRequest());
+    }
+
+    // ------------------------------------------------------------------
     // Unknown routes still 401 when they require a body/write intent
     // (proves the default is authenticated, not permitAll)
     // ------------------------------------------------------------------
