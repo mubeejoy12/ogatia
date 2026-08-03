@@ -1,36 +1,43 @@
-import type { Metadata } from "next";
-import { Suspense } from "react";
-import { PageHeader } from "@/components/sections/PageHeader";
-import { ConfirmationView } from "@/features/checkout/ConfirmationView";
-import { site } from "@/lib/site";
+"use client";
+
+import { Suspense, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 /**
- * Confirmation is personal + transient — never indexed, never in the sitemap.
- * The order data lives in the customer's own localStorage.
+ * Legacy redirect. The canonical order confirmation URL is now
+ * {@code /orders/[reference]} (B006 Stage 5). This route stays to
+ * catch bookmarks and in-flight tabs from the pre-B006 checkout
+ * flow. On mount:
+ *   * {@code ?ref=EAZI-…} → 302 to {@code /orders/EAZI-…}
+ *   * no ref → 302 to {@code /account/orders}
+ *
+ * <p>Not indexed (parent metadata inherited from robots.txt +
+ * the noindex on the previous version's Metadata).
  */
-export const metadata: Metadata = {
-  title: "Order confirmation",
-  description: "Your Eazi Cut commission has been received.",
-  alternates: { canonical: `${site.url}/checkout/confirmation` },
-  robots: { index: false, follow: false },
-};
-
-export default function ConfirmationPage() {
+export default function LegacyConfirmationPage() {
   return (
-    <>
-      <PageHeader
-        eyebrow="Confirmation"
-        title="Your commission has been received."
-        intro="A senior member of the atelier will reach out within one business day to confirm the details of your order."
-      />
+    <Suspense fallback={<div aria-hidden className="min-h-[50vh]" />}>
+      <LegacyConfirmationRedirect />
+    </Suspense>
+  );
+}
 
-      <section aria-label="Order confirmation" className="pb-24 md:pb-32 bg-ivory">
-        <div className="container">
-          <Suspense fallback={<div aria-hidden className="min-h-[50vh]" />}>
-            <ConfirmationView />
-          </Suspense>
-        </div>
-      </section>
-    </>
+function LegacyConfirmationRedirect() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    const ref = searchParams.get("ref");
+    if (ref) {
+      router.replace(`/orders/${encodeURIComponent(ref)}`);
+    } else {
+      router.replace("/account/orders");
+    }
+  }, [router, searchParams]);
+
+  return (
+    <section className="mx-auto max-w-3xl px-6 py-24">
+      <p className="text-ink/70">Redirecting to your order…</p>
+    </section>
   );
 }
